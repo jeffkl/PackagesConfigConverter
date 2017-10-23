@@ -32,10 +32,10 @@ namespace ConsoleApp
                     return PrintUsage("You must specify a repository path");
                 }
 
-                List<string> exclusions = args.GetCommandLineArgumentValues("/e", "exclude").ToList();
+                List<string> exclusions = args.GetCommandLineArgumentValues("/e:", "/exclude:").ToList();
 
                 Console.WriteLine($" EnlistmentRoot: '{repositoryPath}'");
-                Console.WriteLine($" Exclusion: '{String.Join($"{Environment.NewLine}  Exclusion: '", exclusions)}'");
+                Console.WriteLine($"        Exclude: '{String.Join($"{Environment.NewLine}        Exclude: '", exclusions)}'");
                 Console.WriteLine();
 
                 if (!quiet)
