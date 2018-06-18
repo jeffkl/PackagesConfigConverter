@@ -2,6 +2,7 @@
 using Microsoft.Build.Evaluation;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
+using NuGet.Versioning;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,25 +14,34 @@ namespace ConsoleApp
 {
     internal sealed class ProjectConverter : IDisposable
     {
+        private const string CommonPackagesGroupLabel = "Package versions used by this repository";
+
         // ReSharper disable once CollectionNeverUpdated.Local
         private static readonly AssemblyReferenceRegularExpressions AssemblyReferenceRegularExpressions = new AssemblyReferenceRegularExpressions();
 
         // ReSharper disable once CollectionNeverUpdated.Local
         private static readonly ImportRegularExpressions ImportRegularExpressions = new ImportRegularExpressions();
 
-        private static readonly string[] ItemsToRemove = {"packages.config"};
-        private static readonly string[] ItemTypesToRemove = {"Analyzer"};
-        private static readonly string[] PropertiesToRemove = {"NuGetPackageImportStamp"};
+        private static readonly string[] ItemsToRemove = { "packages.config" };
+        private static readonly string[] ItemTypesToRemove = { "Analyzer" };
+        private static readonly string[] PropertiesToRemove = { "NuGetPackageImportStamp" };
         private readonly ProjectCollection _projectCollection;
+        private readonly string _packagesRoot;
+        private readonly string _repoRoot;
 
-        public ProjectConverter()
-            : this(new ProjectCollection())
-        {
-        }
-
-        public ProjectConverter(ProjectCollection projectCollection)
+        public ProjectConverter(ProjectCollection projectCollection, string packagesRoot, string repoRoot, bool usePackagesProps)
         {
             _projectCollection = projectCollection ?? throw new ArgumentNullException(nameof(projectCollection));
+            _packagesRoot = packagesRoot ?? throw new ArgumentNullException(nameof(packagesRoot));
+            _repoRoot = repoRoot ?? throw new ArgumentNullException(nameof(repoRoot));
+
+            if (usePackagesProps)
+            {
+                if (GetPackagesPropsOrNull() == null)
+                {
+                    throw new InvalidOperationException($"{nameof(ProgramArguments.UsePackagesProps)} command line option is 'true' but packages.props is not found in {repoRoot}");
+                }
+            }
         }
 
         public void ConvertProject(string projectPath)
@@ -42,6 +52,8 @@ namespace ConsoleApp
             {
                 return;
             }
+
+            ProjectRootElement packagesProps = GetPackagesPropsOrNull();
 
             PackagesConfigReader packagesConfigReader = new PackagesConfigReader(XDocument.Load(packagesConfigPath));
 
@@ -59,26 +71,62 @@ namespace ConsoleApp
 
                 RemoveItems(project);
 
-                ReplaceReferences(project, packages);
+                ReplaceReferences(project, packages, packagesProps);
 
                 project.Save();
 
+                if (packagesProps != null)
+                {
+                    packagesProps.Save();
+                }
+
                 File.Delete(packagesConfigPath);
             }
-            catch (Exception)
+            catch (Exception e)
             {
-                Console.WriteLine($"Failed to convert '{projectPath}'");
+                Console.WriteLine($"Failed to convert '{projectPath}' : {e}");
             }
         }
 
-        public void ConvertRepository(string repositoryPath, IEnumerable<string> exclusions = null)
+        private ProjectRootElement GetPackagesPropsOrNull()
         {
-            HashSet<string> exlustionsHashSet = new HashSet<string>(exclusions ?? Enumerable.Empty<string>());
-
-            foreach (string file in Directory.EnumerateFiles(repositoryPath, "*.csproj", SearchOption.AllDirectories).Where(i => !exlustionsHashSet.Any(e => i.StartsWith(e, StringComparison.OrdinalIgnoreCase))))
+            string packagesPropsFile = Path.Combine(_repoRoot, "packages.props");
+            if (File.Exists(packagesPropsFile))
             {
-                ConvertProject(file);
+                return ProjectRootElement.Open(packagesPropsFile, _projectCollection, preserveFormatting: true);
             }
+
+            return null;
+        }
+
+        public void ConvertRepository(string repositoryPath, string exclude, string include)
+        {
+            Regex excludeRegex = CreateFileFilterRegexOrNull(exclude);
+            Regex includeRegex = CreateFileFilterRegexOrNull(include);
+
+            foreach (string file in Directory.EnumerateFiles(repositoryPath, "*.csproj", SearchOption.AllDirectories)
+                .Where(f => excludeRegex == null || !excludeRegex.IsMatch(f))
+                .Where(f => includeRegex == null || includeRegex.IsMatch(f)))
+            {
+                try
+                {
+                    ConvertProject(file);
+                }
+                catch(InvalidDataException e)
+                {
+                    Console.WriteLine($"[ERROR] Failed to convert {file} : {e}");
+                }
+            }
+        }
+
+        private Regex CreateFileFilterRegexOrNull(string expression)
+        {
+            if (expression == null)
+            {
+                return null;
+            }
+
+            return new Regex(expression, RegexOptions.Compiled | RegexOptions.IgnoreCase);
         }
 
         public void Dispose()
@@ -161,7 +209,7 @@ namespace ConsoleApp
             }
         }
 
-        private void ReplaceReferences(ProjectRootElement project, List<PackageIdentity> packages)
+        private void ReplaceReferences(ProjectRootElement project, List<PackageIdentity> packages, ProjectRootElement packagesProps)
         {
             HashSet<PackageIdentity> allPackages = new HashSet<PackageIdentity>(packages);
 
@@ -186,7 +234,16 @@ namespace ConsoleApp
 
             List<PackageIdentity> packagesAdded = new List<PackageIdentity>();
 
-            ProjectItemElement lastItem = project.Items.First(i => i.ItemType.Equals("Reference")) ?? project.ItemGroups.First().Items.First();
+            ProjectItemElement firstPackageRef = project.Items.FirstOrDefault(i => i.ItemType.Equals("PackageReference"));
+            ProjectItemGroupElement packageRefsGroup; 
+            if (firstPackageRef == null)
+            {
+                packageRefsGroup = project.AddItemGroup();
+            }
+            else
+            {
+                packageRefsGroup = (ProjectItemGroupElement)firstPackageRef.Parent;
+            }
 
             foreach (KeyValuePair<ProjectItemElement, PackageIdentity> pair in itemsToReplace)
             {
@@ -194,13 +251,11 @@ namespace ConsoleApp
                 {
                     ProjectItemElement item = project.CreateItemElement("PackageReference", pair.Value.Id);
 
-                    pair.Key.Parent.InsertAfterChild(item, pair.Key);
+                    packageRefsGroup.AddItem("PackageReference", pair.Value.Id);
 
-                    item.AddMetadata("Version", pair.Value.Version.ToString());
+                    SetPackageVersion(item, pair.Value.Version, packagesProps);
 
                     packagesAdded.Add(pair.Value);
-
-                    lastItem = item;
                 }
 
                 pair.Key.Parent.RemoveChild(pair.Key);
@@ -208,23 +263,52 @@ namespace ConsoleApp
 
             foreach (PackageIdentity package in allPackages)
             {
-                if (lastItem == null)
+                ProjectItemElement item = packageRefsGroup.AddItem("PackageReference", package.Id);
+                SetPackageVersion(item, package.Version, packagesProps);
+            }
+        }
+
+        private void SetPackageVersion(ProjectItemElement packageRef, NuGetVersion version, ProjectRootElement packagesProps)
+        {
+            if (packagesProps == null)
+            {
+                packageRef.AddMetadata("Version", version.ToString(), expressAsAttribute: true);
+                return;
+            }
+
+            ProjectItemElement commonPackageVersion = packagesProps.Items
+                .FirstOrDefault(i =>    i.ItemType.Equals("PackageVersion", StringComparison.OrdinalIgnoreCase) && 
+                                        i.Include.Equals(packageRef.Include, StringComparison.OrdinalIgnoreCase));
+
+            string versionStr = $"[{version.ToString()}]";
+            if (version.Revision == 0 && version.Release.Length == 0)
+            {
+                // Handle the case when a package in packages.config is declared with full version, e.g. <package id="StyleCop.MSBuild" version="5.0.0.0" ...>
+                // but on disk the package is cached in stylecop.msbuild\5.0.0 folder, i.e. withpuit the last zero.
+                versionStr = $"[{version.ToMajorMinorPatchString()}]";
+            }
+
+            if (commonPackageVersion != null)
+            {
+                ProjectMetadataElement commonVersion = commonPackageVersion.Metadata.FirstOrDefault(i => i.Name.Equals("Version"));
+                if (commonVersion != null)
                 {
-                    var itemGroup = project.AddItemGroup();
-
-                    lastItem = itemGroup.AddItem("PackageReference", package.Id, new List<KeyValuePair<string, string>> {new KeyValuePair<string, string>("Version", package.Version.ToString())});
-                }
-                else
-                {
-                    ProjectItemElement item = project.CreateItemElement("PackageReference", package.Id);
-
-                    lastItem.Parent.InsertAfterChild(item, lastItem);
-
-                    item.AddMetadata("Version", package.Version.ToString());
-
-                    lastItem = item;
+                    if (!versionStr.Equals(commonVersion.Value.ToString()))
+                    {
+                        throw new InvalidDataException($"For package {packageRef.Include} version {version} conflicts with {commonVersion.Value} [project {packageRef.ContainingProject.FullPath}]");
+                    }
+                    return;
                 }
             }
+
+            ProjectItemGroupElement commonPackagesGroup = packagesProps.ItemGroups.SingleOrDefault(g => g.Label.Equals(CommonPackagesGroupLabel, StringComparison.OrdinalIgnoreCase));
+            if (commonPackagesGroup == null)
+            {
+                throw new InvalidOperationException($"{packagesProps.FullPath} is expected to contain ItemGroup with label '{CommonPackagesGroupLabel}'");
+            }
+
+            ProjectItemElement commonVersionItem = commonPackagesGroup.AddItem("PackageVersion", packageRef.Include.ToString());
+            commonVersionItem.AddMetadata("Version", versionStr.ToString(), expressAsAttribute: true);
         }
     }
 }
