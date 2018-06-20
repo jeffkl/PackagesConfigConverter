@@ -44,7 +44,6 @@
   <ItemGroup>
     <Compile Include="AssemblyReferenceRegularExpressions.cs" />
     <Compile Include="ImportRegularExpressions.cs" />
-    <Compile Include="NuGetVersionExtensions.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="ProgramArguments.cs" />
     <Compile Include="ProjectConverter.cs" />

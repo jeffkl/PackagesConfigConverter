@@ -280,14 +280,7 @@ namespace ConsoleApp
                 .FirstOrDefault(i =>    i.ItemType.Equals("PackageVersion", StringComparison.OrdinalIgnoreCase) && 
                                         i.Include.Equals(packageRef.Include, StringComparison.OrdinalIgnoreCase));
 
-            string versionStr = $"[{version.ToString()}]";
-            if (version.Revision == 0 && version.Release.Length == 0)
-            {
-                // Handle the case when a package in packages.config is declared with full version, e.g. <package id="StyleCop.MSBuild" version="5.0.0.0" ...>
-                // but on disk the package is cached in stylecop.msbuild\5.0.0 folder, i.e. withpuit the last zero.
-                versionStr = $"[{version.ToMajorMinorPatchString()}]";
-            }
-
+            string versionStr = $"[{version.ToNormalizedString()}]";
             if (commonPackageVersion != null)
             {
                 ProjectMetadataElement commonVersion = commonPackageVersion.Metadata.FirstOrDefault(i => i.Name.Equals("Version"));
