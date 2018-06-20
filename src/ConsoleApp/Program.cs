@@ -1,6 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using CmdLine;
+using Microsoft.Build.Evaluation;
+using NuGet.Configuration;
+using System;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 
@@ -8,37 +11,33 @@ namespace ConsoleApp
 {
     internal class Program
     {
-        // @"D:\Truman2\private\Libraries\ServiceClient\public\sample"
         private static int Main(string[] args)
         {
             try
             {
-                if (args.Any(i => i.Equals("/debug", StringComparison.OrdinalIgnoreCase)))
-                {
-                    Debugger.Break();
-                }
-
                 if (args.Any(i => i.Equals("/?", StringComparison.OrdinalIgnoreCase)))
                 {
                     return PrintUsage();
                 }
 
-                bool quiet = args.Any(i => i.StartsWith("/q", StringComparison.OrdinalIgnoreCase));
+                ProgramArguments arguments = CommandLine.Parse<ProgramArguments>();
 
-                string repositoryPath = args.SingleOrDefault(i => i[0] != '/');
+                if (arguments.Debug)
+                {
+                    Debugger.Launch();
+                }
 
-                if (String.IsNullOrWhiteSpace(repositoryPath))
+                if (String.IsNullOrWhiteSpace(arguments.RepoRoot))
                 {
                     return PrintUsage("You must specify a repository path");
                 }
 
-                List<string> exclusions = args.GetCommandLineArgumentValues("/e:", "/exclude:").ToList();
-
-                Console.WriteLine($" EnlistmentRoot: '{repositoryPath}'");
-                Console.WriteLine($"        Exclude: '{String.Join($"{Environment.NewLine}        Exclude: '", exclusions)}'");
+                Console.WriteLine($" EnlistmentRoot: '{arguments.RepoRoot}'");
+                Console.WriteLine($"  Exclude regex: '{arguments.Exclude}'");
+                Console.WriteLine($"  Include regex: '{arguments.Include}'");
                 Console.WriteLine();
 
-                if (!quiet)
+                if (!arguments.Quiet)
                 {
                     Console.Write("Ensure there are no files checked out in git before continuing!  Continue? (Y/N) ");
                     if (!Console.ReadLine().StartsWith("Y", StringComparison.OrdinalIgnoreCase))
@@ -47,11 +46,11 @@ namespace ConsoleApp
                     }
                 }
 
-                using (ProjectConverter projectConverter = new ProjectConverter())
+                using (ProjectConverter projectConverter = new ProjectConverter(new ProjectCollection(), GetPackageRootPath(arguments.RepoRoot), arguments.RepoRoot, arguments.UsePackagesProps))
                 {
                     Console.WriteLine("Converting...");
 
-                    projectConverter.ConvertRepository(repositoryPath, exclusions);
+                    projectConverter.ConvertRepository(arguments.RepoRoot, arguments.Exclude, arguments.Include);
 
                     Console.WriteLine("Success!");
                 }
@@ -78,20 +77,28 @@ namespace ConsoleApp
 
             Console.WriteLine($"{Assembly.GetExecutingAssembly().GetName().Name}.exe repositoryPath [/quiet] [/exclude:path1;path2]");
             Console.WriteLine();
-            Console.WriteLine("    Repository    Full path to the repository root to convert");
-            Console.WriteLine();
-            Console.WriteLine("    /quiet        Do not prompt before converting the tree");
-            Console.WriteLine();
-            Console.WriteLine("    /exclude      One or more full paths to any directories to exclude");
-            Console.WriteLine();
-            Console.WriteLine("                  Example:");
-            Console.WriteLine();
-            Console.WriteLine("                  /exclude:\"D:\\RepoA\\src\\ProjectX\"");
-
-            Console.WriteLine();
-            Console.WriteLine("    /debug        Launch the debugger before executing");
+            Console.WriteLine("    /RepoRoot          Full path to the repository root to convert");
+            Console.WriteLine("    /quiet             Do not prompt before converting the tree");
+            Console.WriteLine("    /exclude           Regex for project files to exclude");
+            Console.WriteLine("    /include           Regex for project files to include");
+            Console.WriteLine("    /debug             Launch the debugger before executing");
+            Console.WriteLine("    /UsePackagesProps  Update packages.props in the root of the repo");
 
             return String.IsNullOrWhiteSpace(errorMessage) ? 0 : 1;
+        }
+
+        private static string GetPackageRootPath(string repoRoot)
+        {
+            string nuGetConfigPath = Path.Combine(repoRoot, Settings.DefaultSettingsFileName);
+
+            if (File.Exists(nuGetConfigPath))
+            {
+                ISettings settings = Settings.LoadDefaultSettings(repoRoot, Settings.DefaultSettingsFileName, new XPlatMachineWideSetting());
+
+                return SettingsUtility.GetRepositoryPath(settings);
+            }
+
+            throw new InvalidOperationException($"{nuGetConfigPath} doesn't exist");
         }
     }
 }
