@@ -4,11 +4,45 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
-namespace ConsoleApp
+namespace PackagesConfigProjectConverter
 {
+    internal static class RegularExpressions
+    {
+        public static AnalyzerRegularExpressions Analyzers { get; } = new AnalyzerRegularExpressions();
+
+        public static AssemblyReferenceRegularExpressions AssemblyReferences { get; } = new AssemblyReferenceRegularExpressions();
+
+        public static ImportRegularExpressions Imports { get; } = new ImportRegularExpressions();
+    }
+    internal class AnalyzerRegularExpressions : RegularExpressionsForPackagesBase
+    {
+        protected override string GetRegularExpression(PackageIdentity packageIdentity)
+        {
+            return $@".*\\{Regex.Escape(packageIdentity.Id)}\.{SemVerPattern}\\analyzers\\.*";
+        }
+    }
+
+    internal class AssemblyReferenceRegularExpressions : RegularExpressionsForPackagesBase
+    {
+        protected override string GetRegularExpression(PackageIdentity packageIdentity)
+        {
+            return $@".*\\{Regex.Escape(packageIdentity.Id)}\.{SemVerPattern}\\lib\\.*";
+        }
+    }
+
+    internal class ImportRegularExpressions : RegularExpressionsForPackagesBase
+    {
+        protected override string GetRegularExpression(PackageIdentity packageIdentity)
+        {
+            return $@".*\\{Regex.Escape(packageIdentity.Id)}\.{SemVerPattern}\\build\\.*{Regex.Escape(packageIdentity.Id)}\.(?:props|targets)";
+        }
+    }
+
     internal abstract class RegularExpressionsForPackagesBase : IDictionary<PackageIdentity, Regex>
     {
         private readonly Dictionary<PackageIdentity, Regex> _regexes = new Dictionary<PackageIdentity, Regex>();
+
+        protected const string SemVerPattern = @"(?<version>\d*\.\d*\.\d*\.?\d*-?[\w\d\-]*)";
 
         public int Count => _regexes.Count;
 
@@ -24,7 +58,7 @@ namespace ConsoleApp
             {
                 if (!_regexes.ContainsKey(key))
                 {
-                    _regexes.Add(key, GetRegularExpression(key));
+                    _regexes.Add(key, new Regex(GetRegularExpression(key), RegexOptions.IgnoreCase));
                 }
 
                 return _regexes[key];
@@ -87,6 +121,6 @@ namespace ConsoleApp
             return _regexes.TryGetValue(key, out value);
         }
 
-        protected abstract Regex GetRegularExpression(PackageIdentity packageIdentity);
+        protected abstract string GetRegularExpression(PackageIdentity packageIdentity);
     }
 }
