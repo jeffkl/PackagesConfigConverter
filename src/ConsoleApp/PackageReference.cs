@@ -35,8 +35,12 @@ namespace PackagesConfigProjectConverter
         public IReadOnlyCollection<string> InstalledPackageFolderNames => _installedPackageFolderNames ?? (_installedPackageFolderNames = GetPackageFolderNames());
 
         public string PackageId => PackageIdentity.Id;
+
         public NuGetVersion PackageVersion => PackageIdentity.Version;
+
         public string RepositoryInstalledPath { get; }
+
+        public bool IsMissingTransitiveDependency { get; set; }
 
         public bool HasFolder(string name)
         {

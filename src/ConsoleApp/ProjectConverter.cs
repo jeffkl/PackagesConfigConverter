@@ -1,10 +1,16 @@
 ﻿using log4net;
 using Microsoft.Build.Construction;
 using Microsoft.Build.Evaluation;
+using NuGet.Commands;
+using NuGet.Common;
 using NuGet.Configuration;
+using NuGet.Frameworks;
 using NuGet.LibraryModel;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
+using NuGet.ProjectModel;
+using NuGet.Protocol;
+using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
 using System;
 using System.Collections.Generic;
@@ -13,20 +19,12 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Xml.Linq;
-using NuGet.Commands;
-using NuGet.Common;
-using NuGet.DependencyResolver;
-using NuGet.Frameworks;
-using NuGet.ProjectModel;
-using NuGet.Protocol;
-using NuGet.Protocol.Core.Types;
 
 // ReSharper disable CollectionNeverUpdated.Local
 namespace PackagesConfigProjectConverter
 {
     internal sealed class ProjectConverter : IProjectConverter
     {
-        private const string CommonPackagesGroupLabel = "Package versions used by this repository";
         private static readonly HashSet<string> ItemsToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "packages.config" };
         private static readonly HashSet<string> PropertiesToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "NuGetPackageImportStamp" };
         private static readonly HashSet<string> TargetsToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "EnsureNuGetPackageBuildImports" };
@@ -127,6 +125,7 @@ namespace PackagesConfigProjectConverter
 
         private ProjectItemElement AddPackageReference(ProjectItemGroupElement itemGroupElement, PackageReference package)
         {
+            LibraryIncludeFlags includeAssets = LibraryIncludeFlags.All;
             LibraryIncludeFlags excludeAssets = LibraryIncludeFlags.None;
 
             LibraryIncludeFlags privateAssets = LibraryIncludeFlags.None;
@@ -152,9 +151,21 @@ namespace PackagesConfigProjectConverter
                 privateAssets |= LibraryIncludeFlags.All;
             }
 
+            if (package.IsMissingTransitiveDependency)
+            {
+                includeAssets = LibraryIncludeFlags.None;
+                excludeAssets = LibraryIncludeFlags.None;
+                privateAssets = LibraryIncludeFlags.All;
+            }
+
             ProjectItemElement itemElement = itemGroupElement.AppendItem("PackageReference", package.PackageIdentity.Id);
 
             itemElement.AddMetadataAsAttribute("Version", package.PackageVersion.ToNormalizedString());
+
+            if (includeAssets != LibraryIncludeFlags.All)
+            {
+                itemElement.AddMetadataAsAttribute("IncludeAssets", includeAssets.ToString());
+            }
 
             if (excludeAssets != LibraryIncludeFlags.None)
             {
@@ -169,20 +180,96 @@ namespace PackagesConfigProjectConverter
             return itemElement;
         }
 
-        private void Test(List<PackageReference> packages, string projectPath)
+        private bool ConvertProject(string projectPath, string packagesConfigPath)
+        {
+            try
+            {
+                Log.Info($"  Converting project \"{projectPath}\"");
+
+                PackagesConfigReader packagesConfigReader = new PackagesConfigReader(XDocument.Load(packagesConfigPath));
+
+                List<PackageReference> packages = packagesConfigReader.GetPackages(allowDuplicatePackageIds: true).Select(i => new PackageReference(i.PackageIdentity, i.TargetFramework, i.IsUserInstalled, i.IsDevelopmentDependency, i.RequireReinstallation, i.AllowedVersions, PackagePathResolver, VersionFolderPathResolver)).ToList();
+
+                DetectMissingTransitiveDependencies(packages, projectPath);
+
+                ProjectRootElement project = ProjectRootElement.Open(projectPath, _projectCollection, preserveFormatting: true);
+
+                ProjectItemGroupElement packageReferenceItemGroupElement = null;
+
+                foreach (ProjectElement element in project.AllChildren)
+                {
+                    ProcessElement(element, packages);
+
+                    if (packageReferenceItemGroupElement == null && element is ProjectItemElement itemElement && itemElement.ItemType.Equals("Reference"))
+                    {
+                        // Find the first Reference item and use it to add PackageReference items to, otherwise a new ItemGroup is added
+                        packageReferenceItemGroupElement = element.Parent as ProjectItemGroupElement;
+                    }
+                }
+
+                if (packageReferenceItemGroupElement == null)
+                {
+                    packageReferenceItemGroupElement = project.AddItemGroup();
+                }
+
+                Log.Info("    Current package references:");
+
+                foreach (PackageReference package in packages.Where(i => !i.IsMissingTransitiveDependency))
+                {
+                    Log.Info($"      {package.PackageIdentity}");
+                }
+
+                Log.Info("    Converted package references:");
+
+                foreach (PackageReference package in packages)
+                {
+                    ProjectItemElement packageReferenceItemElement = AddPackageReference(packageReferenceItemGroupElement, package);
+
+                    Log.Info($"      {packageReferenceItemElement.ToXmlString()}");
+                }
+
+                foreach (ProjectElement element in packages.Where(i => !i.IsMissingTransitiveDependency).SelectMany(i => i.AllElements))
+                {
+                    Log.Debug($"    {element.Location}: Removing element {element.ToXmlString()}");
+                    element.Remove();
+                }
+
+                if (project.HasUnsavedChanges)
+                {
+                    Log.Debug($"    Saving project \"{project.FullPath}\"");
+                    project.Save();
+                }
+
+                Log.Debug($"    Deleting file \"{packagesConfigPath}\"");
+
+                File.Delete(packagesConfigPath);
+
+                Log.Info($"  Successfully converted \"{project.FullPath}\"");
+            }
+            catch (Exception e)
+            {
+                Log.Error($"Failed to convert '{projectPath}' : {e}");
+
+                return false;
+            }
+
+            return true;
+        }
+
+        private void DetectMissingTransitiveDependencies(List<PackageReference> packages, string projectPath)
         {
             List<NuGetFramework> targetFrameworks = new List<NuGetFramework>
             {
                 FrameworkConstants.CommonFrameworks.Net45
             };
 
-            using (var sourceCacheContext = new SourceCacheContext
+            using (SourceCacheContext sourceCacheContext = new SourceCacheContext
             {
                 IgnoreFailedSources = true,
             })
             {
                 // The package spec details what packages to restore
-                var packageSpec = new PackageSpec(targetFrameworks.Select(i => new TargetFrameworkInformation
+                PackageSpec packageSpec = new PackageSpec(targetFrameworks.Select(i => new TargetFrameworkInformation
                 {
                     FrameworkName = i
                 }).ToList())
@@ -223,7 +310,7 @@ namespace PackagesConfigProjectConverter
                     Name = Path.GetFileNameWithoutExtension(projectPath),
                 };
 
-                var dependencyGraphSpec = new DependencyGraphSpec();
+                DependencyGraphSpec dependencyGraphSpec = new DependencyGraphSpec();
 
                 dependencyGraphSpec.AddProject(packageSpec);
 
@@ -231,7 +318,7 @@ namespace PackagesConfigProjectConverter
 
                 IPreLoadedRestoreRequestProvider requestProvider = new DependencyGraphSpecRequestProvider(new RestoreCommandProvidersCache(), dependencyGraphSpec);
 
-                var restoreArgs = new RestoreArgs
+                RestoreArgs restoreArgs = new RestoreArgs
                 {
                     AllowNoOp = true,
                     CacheContext = sourceCacheContext,
@@ -240,107 +327,31 @@ namespace PackagesConfigProjectConverter
                 };
 
                 // Create requests from the arguments
-                var requests = requestProvider.CreateRequests(restoreArgs).Result;
+                IReadOnlyList<RestoreSummaryRequest> requests = requestProvider.CreateRequests(restoreArgs).Result;
 
                 // Restore the package without generating extra files
-                RestoreResultPair foo = RestoreRunner.RunWithoutCommit(requests, restoreArgs).Result.FirstOrDefault();
+                RestoreResultPair restoreResult = RestoreRunner.RunWithoutCommit(requests, restoreArgs).Result.FirstOrDefault();
 
-                foreach (LibraryIdentity library in foo.Result.RestoreGraphs.FirstOrDefault().Flattened.Where(i => i.Key.Type == LibraryType.Package).Select(i => i.Key))
+                RestoreTargetGraph restoreTargetGraph = restoreResult?.Result.RestoreGraphs.FirstOrDefault();
+
+                if (restoreTargetGraph != null)
                 {
-                    var mat = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
-
-                    if (mat == null)
+                    foreach (LibraryIdentity library in restoreTargetGraph.Flattened.Where(i => i.Key.Type == LibraryType.Package).Select(i => i.Key))
                     {
+                        PackageReference packageReference = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
 
+                        if (packageReference == null)
+                        {
+                            Log.Warn($"{projectPath}: The transitive package dependency \"{library.Name} {library.Version}\" was not in the packages.config.  After converting to PackageReference, new dependencies will be pulled in transitively which could lead to restore or build errors");
+
+                            packages.Add(new PackageReference(new PackageIdentity(library.Name, library.Version), NuGetFramework.AnyFramework, true, false, true, new VersionRange(library.Version), PackagePathResolver, VersionFolderPathResolver)
+                            {
+                                IsMissingTransitiveDependency = true
+                            });
+                        }
                     }
                 }
             }
-        }
-
-        private bool ConvertProject(string projectPath, string packagesConfigPath)
-        {
-            try
-            {
-                Log.Info($"  Converting project \"{projectPath}\"");
-
-                PackagesConfigReader packagesConfigReader = new PackagesConfigReader(XDocument.Load(packagesConfigPath));
-
-                List<PackageReference> packages = packagesConfigReader.GetPackages(allowDuplicatePackageIds: true).Select(i => new PackageReference(i.PackageIdentity, i.TargetFramework, i.IsUserInstalled, i.IsDevelopmentDependency, i.RequireReinstallation, i.AllowedVersions, PackagePathResolver, VersionFolderPathResolver)).ToList();
-
-                Test(packages, projectPath);
-
-                //foreach (PackageReference package in packages)
-                //{
-                //    var bar = foo.GetPackage(package.PackageIdentity, NullLogger.Instance, CancellationToken.None);
-
-                //    var group = NuGetFrameworkUtility.GetNearest<PackageDependencyGroup>(bar.Nuspec.GetDependencyGroups(), NuGetFramework.Parse("net45"));
-
-                //    var result = new SourcePackageDependencyInfo(
-                //        bar.Identity,
-                //        group.Packages,
-                //        listed: true,
-                //        source: null,
-                //        downloadUri: UriUtility.CreateSourceUri(bar.Path, UriKind.Absolute),
-                //        packageHash: null);
-                //}
-                
-
-                ProjectRootElement project = ProjectRootElement.Open(projectPath, _projectCollection, preserveFormatting: true);
-
-                ProjectItemGroupElement itemGroupElement = null;
-
-                foreach (ProjectElement element in project.AllChildren)
-                {
-                    ProcessElement(element, packages);
-                }
-
-                if (itemGroupElement == null)
-                {
-                    itemGroupElement = project.AddItemGroup();
-                }
-
-                Log.Info("    Current package references:");
-
-                foreach (PackageReference package in packages)
-                {
-                    Log.Info($"      {package.PackageIdentity}");
-                }
-
-                Log.Info("    Converted package references:");
-
-                foreach (PackageReference package in packages)
-                {
-                    ProjectItemElement packageReferenceItemElement = AddPackageReference(itemGroupElement, package);
-
-                    Log.Info($"      {packageReferenceItemElement.ToXmlString()}");
-                }
-
-                foreach (ProjectElement element in packages.SelectMany(i => i.AllElements))
-                {
-                    Log.Debug($"    {element.Location}: Removing element {element.ToXmlString()}");
-                    element.Remove();
-                }
-
-                if (project.HasUnsavedChanges)
-                {
-                    Log.Debug($"    Saving project \"{project.FullPath}\"");
-                    project.Save();
-                }
-
-                Log.Debug($"    Deleting file \"{packagesConfigPath}\"");
-
-                File.Delete(packagesConfigPath);
-
-                Log.Info($"  Successfully converted \"{project.FullPath}\"");
-            }
-            catch (Exception e)
-            {
-                Log.Error($"Failed to convert '{projectPath}' : {e}");
-
-                return false;
-            }
-
-            return true;
         }
 
         private Match GetElementMatch(ElementPath elementPath, PackageReference package)
@@ -385,6 +396,7 @@ namespace PackagesConfigProjectConverter
                         {
                             package.Imports.Add(importElement);
                         }
+
                         break;
                 }
             }
@@ -408,6 +420,7 @@ namespace PackagesConfigProjectConverter
                         propertyElement.Remove();
                         return;
                     }
+
                     break;
 
                 case ProjectItemElement itemElement:
@@ -427,6 +440,7 @@ namespace PackagesConfigProjectConverter
                         targetElement.Remove();
                         return;
                     }
+
                     break;
             }
 
@@ -434,7 +448,7 @@ namespace PackagesConfigProjectConverter
 
             bool elementPathIsValid = false;
 
-            foreach (PackageReference package in packages)
+            foreach (PackageReference package in packages.Where(i => !i.IsMissingTransitiveDependency))
             {
                 Match match = GetElementMatch(elementPath, package);
 
@@ -473,101 +487,6 @@ namespace PackagesConfigProjectConverter
                     }
                 }
             }
-        }
-
-        private void ReplaceReferences(ProjectRootElement project, List<PackageIdentity> packages, ProjectRootElement packagesProps)
-        {
-            HashSet<PackageIdentity> allPackages = new HashSet<PackageIdentity>(packages);
-
-            Dictionary<ProjectItemElement, PackageIdentity> itemsToReplace = new Dictionary<ProjectItemElement, PackageIdentity>();
-
-            foreach (ProjectItemElement itemElement in project.Items.Where(i => i.ItemType.Equals("Reference")))
-            {
-                foreach (PackageIdentity packageIdentity in packages)
-                {
-                    Regex regex = RegularExpressions.AssemblyReferences[packageIdentity];
-
-                    ProjectMetadataElement metadatum = itemElement.Metadata.FirstOrDefault(i => i.Name.Equals("HintPath"));
-
-                    if (metadatum != null && regex.IsMatch(metadatum.Value))
-                    {
-                        itemsToReplace.Add(itemElement, packageIdentity);
-
-                        allPackages.Remove(packageIdentity);
-                    }
-                }
-            }
-
-            List<PackageIdentity> packagesAdded = new List<PackageIdentity>();
-
-            ProjectItemElement firstPackageRef = project.Items.FirstOrDefault(i => i.ItemType.Equals("PackageReference"));
-            ProjectItemGroupElement packageRefsGroup;
-            if (firstPackageRef == null)
-            {
-                packageRefsGroup = project.AddItemGroup();
-            }
-            else
-            {
-                packageRefsGroup = (ProjectItemGroupElement)firstPackageRef.Parent;
-            }
-
-            foreach (KeyValuePair<ProjectItemElement, PackageIdentity> pair in itemsToReplace)
-            {
-                if (!packagesAdded.Contains(pair.Value))
-                {
-                    ProjectItemElement item = project.CreateItemElement("PackageReference", pair.Value.Id);
-
-                    packageRefsGroup.AddItem("PackageReference", pair.Value.Id);
-
-                    SetPackageVersion(item, pair.Value.Version, packagesProps);
-
-                    packagesAdded.Add(pair.Value);
-                }
-
-                pair.Key.Parent.RemoveChild(pair.Key);
-            }
-
-            foreach (PackageIdentity package in allPackages)
-            {
-                ProjectItemElement item = packageRefsGroup.AddItem("PackageReference", package.Id);
-                SetPackageVersion(item, package.Version, packagesProps);
-            }
-        }
-
-        private void SetPackageVersion(ProjectItemElement packageRef, NuGetVersion version, ProjectRootElement packagesProps)
-        {
-            if (packagesProps == null)
-            {
-                packageRef.AddMetadata("Version", version.ToString(), expressAsAttribute: true);
-                return;
-            }
-
-            ProjectItemElement commonPackageVersion = packagesProps.Items
-                .FirstOrDefault(i => i.ItemType.Equals("PackageVersion", StringComparison.OrdinalIgnoreCase) &&
-                                        i.Include.Equals(packageRef.Include, StringComparison.OrdinalIgnoreCase));
-
-            string versionStr = $"[{version.ToNormalizedString()}]";
-            if (commonPackageVersion != null)
-            {
-                ProjectMetadataElement commonVersion = commonPackageVersion.Metadata.FirstOrDefault(i => i.Name.Equals("Version"));
-                if (commonVersion != null)
-                {
-                    if (!versionStr.Equals(commonVersion.Value.ToString()))
-                    {
-                        throw new InvalidDataException($"For package {packageRef.Include} version {version} conflicts with {commonVersion.Value} [project {packageRef.ContainingProject.FullPath}]");
-                    }
-                    return;
-                }
-            }
-
-            ProjectItemGroupElement commonPackagesGroup = packagesProps.ItemGroups.SingleOrDefault(g => g.Label.Equals(CommonPackagesGroupLabel, StringComparison.OrdinalIgnoreCase));
-            if (commonPackagesGroup == null)
-            {
-                throw new InvalidOperationException($"{packagesProps.FullPath} is expected to contain ItemGroup with label '{CommonPackagesGroupLabel}'");
-            }
-
-            ProjectItemElement commonVersionItem = commonPackagesGroup.AddItem("PackageVersion", packageRef.Include.ToString());
-            commonVersionItem.AddMetadata("Version", versionStr.ToString(), expressAsAttribute: true);
         }
     }
 }
