@@ -1,104 +1,128 @@
-﻿using CmdLine;
-using Microsoft.Build.Evaluation;
-using NuGet.Configuration;
+﻿using CommandLine;
+using log4net;
+using log4net.Appender;
+using log4net.Core;
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
+using System.Threading;
 
-namespace ConsoleApp
+namespace PackagesConfigProjectConverter
 {
     internal class Program
     {
-        private static int Main(string[] args)
+        private static readonly CancellationTokenSource CancellationTokenSource = new CancellationTokenSource();
+
+        private static ILog Log = LogManager.GetLogger(typeof(Program));
+
+        public static int Main(string[] args)
         {
+            int ret = 0;
+
             try
             {
-                if (args.Any(i => i.Equals("/?", StringComparison.OrdinalIgnoreCase)))
+                Console.CancelKeyPress += (sender, e) =>
                 {
-                    return PrintUsage();
-                }
+                    e.Cancel = false;
 
-                ProgramArguments arguments = CommandLine.Parse<ProgramArguments>();
+                    Log.Info("Cancelling...");
 
-                if (arguments.Debug)
-                {
-                    Debugger.Launch();
-                }
+                    CancellationTokenSource.Cancel();
+                };
 
-                if (String.IsNullOrWhiteSpace(arguments.RepoRoot))
-                {
-                    return PrintUsage("You must specify a repository path");
-                }
-
-                Console.WriteLine($" EnlistmentRoot: '{arguments.RepoRoot}'");
-                Console.WriteLine($"  Exclude regex: '{arguments.Exclude}'");
-                Console.WriteLine($"  Include regex: '{arguments.Include}'");
-                Console.WriteLine();
-
-                if (!arguments.Quiet)
-                {
-                    Console.Write("Ensure there are no files checked out in git before continuing!  Continue? (Y/N) ");
-                    if (!Console.ReadLine().StartsWith("Y", StringComparison.OrdinalIgnoreCase))
+                new Parser(parserSettings =>
                     {
-                        return 0;
-                    }
-                }
-
-                using (ProjectConverter projectConverter = new ProjectConverter(new ProjectCollection(), GetPackageRootPath(arguments.RepoRoot), arguments.RepoRoot, arguments.UsePackagesProps))
-                {
-                    Console.WriteLine("Converting...");
-
-                    projectConverter.ConvertRepository(arguments.RepoRoot, arguments.Exclude, arguments.Include);
-
-                    Console.WriteLine("Success!");
-                }
+                        parserSettings.CaseInsensitiveEnumValues = true;
+                        parserSettings.CaseSensitive = true;
+                        parserSettings.EnableDashDash = true;
+                        parserSettings.HelpWriter = Console.Out;
+                    })
+                    .ParseArguments<ProgramArguments>(args)
+                    .WithParsed(Run)
+                    .WithNotParsed(errors => ret = 1);
+            }
+            catch (OperationCanceledException)
+            {
+                ret = -1;
             }
             catch (Exception e)
             {
-                Console.Error.WriteLine(e.ToString());
+                ret = 2;
 
-                return 1;
+                Log.Error(e.ToString());
+
+                return ret;
             }
 
-            return 0;
+            return ret;
         }
 
-        private static int PrintUsage(string errorMessage = null)
+        public static void Run(ProgramArguments arguments)
         {
-            if (!String.IsNullOrWhiteSpace(errorMessage))
+            if (arguments.Debug)
             {
-                Console.Error.WriteLine(errorMessage);
+                Debugger.Launch();
             }
 
-            Console.WriteLine("Converts a repository from packages.config to PackageReference.");
-            Console.WriteLine();
+            ConfigureLogger(arguments);
 
-            Console.WriteLine($"{Assembly.GetExecutingAssembly().GetName().Name}.exe repositoryPath [/quiet] [/exclude:path1;path2]");
-            Console.WriteLine();
-            Console.WriteLine("    /RepoRoot          Full path to the repository root to convert");
-            Console.WriteLine("    /quiet             Do not prompt before converting the tree");
-            Console.WriteLine("    /exclude           Regex for project files to exclude");
-            Console.WriteLine("    /include           Regex for project files to include");
-            Console.WriteLine("    /debug             Launch the debugger before executing");
-            Console.WriteLine("    /UsePackagesProps  Update packages.props in the root of the repo");
+            ProjectConverterSettings settings = new ProjectConverterSettings
+            {
+                RepositoryRoot = arguments.RepoRoot,
+                Include = arguments.Include.ToRegex(),
+                Exclude = arguments.Exclude.ToRegex(),
+                Log = Log
+            };
 
-            return String.IsNullOrWhiteSpace(errorMessage) ? 0 : 1;
+            Log.Info($" RepositoryRoot: '{settings.RepositoryRoot}'");
+            Log.Info($"  Include regex: '{settings.Include}'");
+            Log.Info($"  Exclude regex: '{settings.Exclude}'");
+            Log.Info(String.Empty);
+
+            if (!arguments.Yes)
+            {
+                Console.Write("Ensure there are no files checked out in git before continuing!  Continue? (Y/N) ");
+                if (!Console.In.ReadLine().StartsWith("Y", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new OperationCanceledException();
+                }
+            }
+
+            using (IProjectConverter projectConverter = ProjectConverterFactory.Create(settings))
+            {
+                projectConverter.ConvertRepository(CancellationTokenSource.Token);
+            }
         }
 
-        private static string GetPackageRootPath(string repoRoot)
+        private static void ConfigureLogger(ProgramArguments arguments)
         {
-            string nuGetConfigPath = Path.Combine(repoRoot, Settings.DefaultSettingsFileName);
-
-            if (File.Exists(nuGetConfigPath))
+            foreach (AppenderSkeleton appender in Log.Logger.Repository.GetAppenders().OfType<AppenderSkeleton>())
             {
-                ISettings settings = Settings.LoadDefaultSettings(repoRoot, Settings.DefaultSettingsFileName, new XPlatMachineWideSetting());
+                switch (appender)
+                {
+                    case FileAppender fileAppender:
+                        if (arguments.LogFile != null)
+                        {
+                            fileAppender.File = Path.Combine(Environment.CurrentDirectory, Path.GetFileName(arguments.LogFile));
+                        }
+                        else
+                        {
+                            fileAppender.Threshold = Level.Off;
+                        }
 
-                return SettingsUtility.GetRepositoryPath(settings);
+                        fileAppender.ActivateOptions();
+
+                        break;
+                }
+
+                if (arguments.Verbose)
+                {
+                    appender.Threshold = Level.Verbose;
+
+                    appender.ActivateOptions();
+                }
             }
-
-            throw new InvalidOperationException($"{nuGetConfigPath} doesn't exist");
         }
     }
 }

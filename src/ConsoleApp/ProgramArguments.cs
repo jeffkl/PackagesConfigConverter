@@ -1,26 +1,35 @@
-﻿using CmdLine;
+﻿
+using System;
+using System.Collections.Generic;
+using CommandLine;
 
-namespace ConsoleApp
+namespace PackagesConfigProjectConverter
 {
-    [CommandLineArguments(Program = "PackagesConfigConverter", Title = "PackagesConfigConverter", Description = "Converts a repository from packages.config to PackageReference")]
+    // [CommandLineArguments(Program = "PackagesConfigConverter", Title = "PackagesConfigConverter", HelpText = "Converts a repository from packages.config to PackageReference")]
     public class ProgramArguments
     {
-        [CommandLineParameter(Command = "Debug", Description = "Launch the debugger before running the program")]
+        [Option('d', HelpText = "Launch the debugger before running the program")]
         public bool Debug { get; set; }
 
-        [CommandLineParameter(Command = "RepoRoot", Description = "Full path to the repository root to convert")]
+        [Option('r', HelpText = "Full path to the repository root to convert", Required = true)]
         public string RepoRoot { get; set; }
 
-        [CommandLineParameter(Command = "q", Description = "Do not prompt before converting the tree")]
-        public bool Quiet { get; set; }
+        [Option('y', HelpText = "Suppresses prompting to confirm you want to convert the repository")]
+        public bool Yes { get; set; }
 
-        [CommandLineParameter(Command = "e", Description = "Regex for project files to exclude")]
+        [Option('e', HelpText = "Regex for project files to exclude", MetaValue = "regex")]
         public string Exclude { get; set; }
 
-        [CommandLineParameter(Command = "i", Description = "Regex for project files to include")]
+        [Option('i', HelpText = "Regex for project files to include", MetaValue = "regex")]
         public string Include { get; set; }
 
-        [CommandLineParameter(Command = "UsePackagesProps", Description = "Update packages.props in the root of the repo", Default = true)]
-        public bool UsePackagesProps { get; set; }
+        [Option('l', HelpText = "Log file to write to", MetaValue = "log")]
+        public string LogFile { get; set; }
+
+        [Option('q', HelpText = "Verbose output")]
+        public bool Quiete { get; set; }
+
+        [Option('v', HelpText = "Verbose output")]
+        public bool Verbose { get; set; }
     }
 }
