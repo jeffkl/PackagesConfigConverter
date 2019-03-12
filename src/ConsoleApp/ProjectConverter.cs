@@ -465,7 +465,7 @@ namespace PackagesConfigProjectConverter
 
             if (!elementPathIsValid && IsPathRootedInRepositoryPath(elementPath.FullPath))
             {
-                PackageReference package = packages.FirstOrDefault(i => elementPath.FullPath.StartsWith(i.RepositoryInstalledPath));
+                PackageReference package = packages.FirstOrDefault(i => !string.IsNullOrEmpty(i.RepositoryInstalledPath) && elementPath.FullPath.StartsWith(i.RepositoryInstalledPath));
 
                 if (package == null)
                 {
