@@ -4,6 +4,7 @@ using Microsoft.Build.Evaluation;
 using NuGet.Commands;
 using NuGet.Common;
 using NuGet.Configuration;
+using NuGet.DependencyResolver;
 using NuGet.Frameworks;
 using NuGet.LibraryModel;
 using NuGet.Packaging;
@@ -336,8 +337,10 @@ namespace PackagesConfigProjectConverter
 
                 if (restoreTargetGraph != null)
                 {
-                    foreach (LibraryIdentity library in restoreTargetGraph.Flattened.Where(i => i.Key.Type == LibraryType.Package).Select(i => i.Key))
+                    var flatPackageDependencies = restoreTargetGraph.Flattened.Where(i => i.Key.Type == LibraryType.Package);
+                    foreach (var packageDependency in flatPackageDependencies)
                     {
+                        var (library, metadata) = (packageDependency.Key, packageDependency.Data);
                         PackageReference packageReference = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
 
                         if (packageReference == null)
@@ -350,6 +353,22 @@ namespace PackagesConfigProjectConverter
                             });
                         }
                     }
+
+                    Func<PackageReference, IEnumerable<LibraryDependency>> getPackageDependencies =
+                        package => flatPackageDependencies.First(p => p.Key.Name.Equals(package.PackageId, StringComparison.OrdinalIgnoreCase)).Data.Dependencies;
+
+                    Func<PackageReference, IEnumerable<LibraryDependency>, bool> isPackageInDependencySet =
+                        (p, deps) => deps.Any(d => d.Name.Equals(p.PackageId, StringComparison.OrdinalIgnoreCase));
+
+                    packages.RemoveAll(package =>
+                    {
+                        var willRemove = packages.Select(getPackageDependencies).Any(deps => isPackageInDependencySet(package, deps)); 
+                        if (willRemove)
+                        {
+                            Log.Warn($"{projectPath}: The transitive package dependency {package.PackageId} {package.AllowedVersions} will be removed because it is referenced by another package in this dependency graph.");
+                        }
+                        return willRemove;
+                    });
                 }
             }
         }
