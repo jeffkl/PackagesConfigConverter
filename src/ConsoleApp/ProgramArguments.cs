@@ -29,6 +29,9 @@ namespace PackagesConfigProjectConverter
         [Option('q', HelpText = "Verbose output")]
         public bool Quiete { get; set; }
 
+        [Option('t', HelpText = "Trim packages to top-level dependencies")]
+        public bool Trim { get; set; }
+
         [Option('v', HelpText = "Verbose output")]
         public bool Verbose { get; set; }
     }

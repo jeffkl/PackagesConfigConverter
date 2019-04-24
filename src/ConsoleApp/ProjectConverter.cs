@@ -220,6 +220,28 @@ namespace PackagesConfigProjectConverter
                     Log.Info($"      {package.PackageIdentity}");
                 }
 
+                foreach (ProjectElement element in packages.Where(i => !i.IsMissingTransitiveDependency).SelectMany(i => i.AllElements))
+                {
+                    Log.Debug($"    {element.Location}: Removing element {element.ToXmlString()}");
+                    element.Remove();
+                }
+
+                if(this._converterSettings.TrimPackages)
+                {
+                    List<NuGetFramework> targetFrameworks = new List<NuGetFramework>
+                    {
+                        FrameworkConstants.CommonFrameworks.Net45
+                    };
+                    using (SourceCacheContext sourceCacheContext = new SourceCacheContext
+                    {
+                        IgnoreFailedSources = true,
+                    })
+                    {
+                        var packageRestoreGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks, sourceCacheContext);
+                        TrimPackages(packages, projectPath, packageRestoreGraph.Flattened);
+                    }
+                }
+
                 Log.Info("    Converted package references:");
 
                 foreach (PackageReference package in packages)
@@ -229,11 +251,6 @@ namespace PackagesConfigProjectConverter
                     Log.Info($"      {packageReferenceItemElement.ToXmlString()}");
                 }
 
-                foreach (ProjectElement element in packages.Where(i => !i.IsMissingTransitiveDependency).SelectMany(i => i.AllElements))
-                {
-                    Log.Debug($"    {element.Location}: Removing element {element.ToXmlString()}");
-                    element.Remove();
-                }
 
                 if (project.HasUnsavedChanges)
                 {
@@ -269,71 +286,7 @@ namespace PackagesConfigProjectConverter
                 IgnoreFailedSources = true,
             })
             {
-                // The package spec details what packages to restore
-                PackageSpec packageSpec = new PackageSpec(targetFrameworks.Select(i => new TargetFrameworkInformation
-                {
-                    FrameworkName = i
-                }).ToList())
-                {
-                    //Dependencies = new List<LibraryDependency>
-                    //{
-                    //    new LibraryDependency
-                    //    {
-                    //        LibraryRange = new LibraryRange(id, new VersionRange(NuGetVersion.Parse(version)), LibraryDependencyTarget.Package),
-                    //        SuppressParent = LibraryIncludeFlags.All,
-                    //        AutoReferenced = true,
-                    //        IncludeType = LibraryIncludeFlags.None,
-                    //        Type = LibraryDependencyType.Build
-                    //    }
-                    //},
-                    Dependencies = packages.Select(i => new LibraryDependency
-                    {
-                        LibraryRange = new LibraryRange(i.PackageId, new VersionRange(i.PackageVersion), LibraryDependencyTarget.Package),
-                        //SuppressParent = LibraryIncludeFlags.All,
-                        //AutoReferenced = true,
-                        //IncludeType = LibraryIncludeFlags.None,
-                        //Type = LibraryDependencyType.
-                    }).ToList(),
-                    RestoreMetadata = new ProjectRestoreMetadata
-                    {
-                        ProjectPath = projectPath,
-                        ProjectName = Path.GetFileNameWithoutExtension(projectPath),
-                        ProjectStyle = ProjectStyle.PackageReference,
-                        ProjectUniqueName = projectPath,
-                        OutputPath = Path.GetTempPath(),
-                        OriginalTargetFrameworks = targetFrameworks.Select(i => i.ToString()).ToList(),
-                        ConfigFilePaths = SettingsUtility.GetConfigFilePaths(_nugetSettings).ToList(),
-                        PackagesPath = SettingsUtility.GetGlobalPackagesFolder(_nugetSettings),
-                        Sources = SettingsUtility.GetEnabledSources(_nugetSettings).ToList(),
-                        FallbackFolders = SettingsUtility.GetFallbackPackageFolders(_nugetSettings).ToList()
-                    },
-                    FilePath = projectPath,
-                    Name = Path.GetFileNameWithoutExtension(projectPath),
-                };
-
-                DependencyGraphSpec dependencyGraphSpec = new DependencyGraphSpec();
-
-                dependencyGraphSpec.AddProject(packageSpec);
-
-                dependencyGraphSpec.AddRestore(packageSpec.RestoreMetadata.ProjectUniqueName);
-
-                IPreLoadedRestoreRequestProvider requestProvider = new DependencyGraphSpecRequestProvider(new RestoreCommandProvidersCache(), dependencyGraphSpec);
-
-                RestoreArgs restoreArgs = new RestoreArgs
-                {
-                    AllowNoOp = true,
-                    CacheContext = sourceCacheContext,
-                    CachingSourceProvider = new CachingSourceProvider(new PackageSourceProvider(_nugetSettings)),
-                    Log = NullLogger.Instance,
-                };
-
-                // Create requests from the arguments
-                IReadOnlyList<RestoreSummaryRequest> requests = requestProvider.CreateRequests(restoreArgs).Result;
-
-                // Restore the package without generating extra files
-                RestoreResultPair restoreResult = RestoreRunner.RunWithoutCommit(requests, restoreArgs).Result.FirstOrDefault();
-
-                RestoreTargetGraph restoreTargetGraph = restoreResult?.Result.RestoreGraphs.FirstOrDefault();
+                RestoreTargetGraph restoreTargetGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks, sourceCacheContext);
 
                 if (restoreTargetGraph != null)
                 {
@@ -353,24 +306,97 @@ namespace PackagesConfigProjectConverter
                             });
                         }
                     }
-
-                    Func<PackageReference, IEnumerable<LibraryDependency>> getPackageDependencies =
-                        package => flatPackageDependencies.First(p => p.Key.Name.Equals(package.PackageId, StringComparison.OrdinalIgnoreCase)).Data.Dependencies;
-
-                    Func<PackageReference, IEnumerable<LibraryDependency>, bool> isPackageInDependencySet =
-                        (p, deps) => deps.Any(d => d.Name.Equals(p.PackageId, StringComparison.OrdinalIgnoreCase));
-
-                    packages.RemoveAll(package =>
-                    {
-                        var willRemove = packages.Select(getPackageDependencies).Any(deps => isPackageInDependencySet(package, deps)); 
-                        if (willRemove)
-                        {
-                            Log.Warn($"{projectPath}: The transitive package dependency {package.PackageId} {package.AllowedVersions} will be removed because it is referenced by another package in this dependency graph.");
-                        }
-                        return willRemove;
-                    });
                 }
             }
+        }
+
+        private RestoreTargetGraph GetRestoreTargetGraph(List<PackageReference> packages, string projectPath, List<NuGetFramework> targetFrameworks, SourceCacheContext sourceCacheContext)
+        {
+            // The package spec details what packages to restore
+            PackageSpec packageSpec = new PackageSpec(targetFrameworks.Select(i => new TargetFrameworkInformation
+            {
+                FrameworkName = i
+            }).ToList())
+            {
+                //Dependencies = new List<LibraryDependency>
+                //{
+                //    new LibraryDependency
+                //    {
+                //        LibraryRange = new LibraryRange(id, new VersionRange(NuGetVersion.Parse(version)), LibraryDependencyTarget.Package),
+                //        SuppressParent = LibraryIncludeFlags.All,
+                //        AutoReferenced = true,
+                //        IncludeType = LibraryIncludeFlags.None,
+                //        Type = LibraryDependencyType.Build
+                //    }
+                //},
+                Dependencies = packages.Select(i => new LibraryDependency
+                {
+                    LibraryRange = new LibraryRange(i.PackageId, new VersionRange(i.PackageVersion), LibraryDependencyTarget.Package),
+                    //SuppressParent = LibraryIncludeFlags.All,
+                    //AutoReferenced = true,
+                    //IncludeType = LibraryIncludeFlags.None,
+                    //Type = LibraryDependencyType.
+                }).ToList(),
+                RestoreMetadata = new ProjectRestoreMetadata
+                {
+                    ProjectPath = projectPath,
+                    ProjectName = Path.GetFileNameWithoutExtension(projectPath),
+                    ProjectStyle = ProjectStyle.PackageReference,
+                    ProjectUniqueName = projectPath,
+                    OutputPath = Path.GetTempPath(),
+                    OriginalTargetFrameworks = targetFrameworks.Select(i => i.ToString()).ToList(),
+                    ConfigFilePaths = SettingsUtility.GetConfigFilePaths(_nugetSettings).ToList(),
+                    PackagesPath = SettingsUtility.GetGlobalPackagesFolder(_nugetSettings),
+                    Sources = SettingsUtility.GetEnabledSources(_nugetSettings).ToList(),
+                    FallbackFolders = SettingsUtility.GetFallbackPackageFolders(_nugetSettings).ToList()
+                },
+                FilePath = projectPath,
+                Name = Path.GetFileNameWithoutExtension(projectPath),
+            };
+
+            DependencyGraphSpec dependencyGraphSpec = new DependencyGraphSpec();
+
+            dependencyGraphSpec.AddProject(packageSpec);
+
+            dependencyGraphSpec.AddRestore(packageSpec.RestoreMetadata.ProjectUniqueName);
+
+            IPreLoadedRestoreRequestProvider requestProvider = new DependencyGraphSpecRequestProvider(new RestoreCommandProvidersCache(), dependencyGraphSpec);
+
+            RestoreArgs restoreArgs = new RestoreArgs
+            {
+                AllowNoOp = true,
+                CacheContext = sourceCacheContext,
+                CachingSourceProvider = new CachingSourceProvider(new PackageSourceProvider(_nugetSettings)),
+                Log = NullLogger.Instance,
+            };
+
+            // Create requests from the arguments
+            IReadOnlyList<RestoreSummaryRequest> requests = requestProvider.CreateRequests(restoreArgs).Result;
+
+            // Restore the package without generating extra files
+            RestoreResultPair restoreResult = RestoreRunner.RunWithoutCommit(requests, restoreArgs).Result.FirstOrDefault();
+
+            RestoreTargetGraph restoreTargetGraph = restoreResult?.Result.RestoreGraphs.FirstOrDefault();
+            return restoreTargetGraph;
+        }
+
+        private void TrimPackages(List<PackageReference> packages, string projectPath, IEnumerable<GraphItem<RemoteResolveResult>> flatPackageDependencies)
+        {
+            Func<PackageReference, IEnumerable<LibraryDependency>> getPackageDependencies =
+                                    package => flatPackageDependencies.First(p => p.Key.Name.Equals(package.PackageId, StringComparison.OrdinalIgnoreCase)).Data.Dependencies;
+
+            Func<PackageReference, IEnumerable<LibraryDependency>, bool> isPackageInDependencySet =
+                (p, deps) => deps.Any(d => d.Name.Equals(p.PackageId, StringComparison.OrdinalIgnoreCase));
+
+            packages.RemoveAll(package =>
+            {
+                var willRemove = packages.Select(getPackageDependencies).Any(deps => isPackageInDependencySet(package, deps));
+                if (willRemove)
+                {
+                    Log.Warn($"{projectPath}: The transitive package dependency {package.PackageId} {package.AllowedVersions} will be removed because it is referenced by another package in this dependency graph.");
+                }
+                return willRemove;
+            });
         }
 
         private Match GetElementMatch(ElementPath elementPath, PackageReference package)

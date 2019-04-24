@@ -19,5 +19,7 @@ namespace PackagesConfigProjectConverter
         public ILog Log { get; set; }
 
         public string RepositoryRoot { get; set; }
+
+        public bool TrimPackages { get; set; }
     }
 }
