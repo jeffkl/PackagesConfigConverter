@@ -72,7 +72,8 @@ namespace PackagesConfigProjectConverter
                 RepositoryRoot = arguments.RepoRoot,
                 Include = arguments.Include.ToRegex(),
                 Exclude = arguments.Exclude.ToRegex(),
-                Log = Log
+                Log = Log,
+                TrimPackages = arguments.Trim
             };
 
             Log.Info($" RepositoryRoot: '{settings.RepositoryRoot}'");
