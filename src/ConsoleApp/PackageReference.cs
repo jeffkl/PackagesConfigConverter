@@ -42,6 +42,8 @@ namespace PackagesConfigProjectConverter
 
         public bool IsMissingTransitiveDependency { get; set; }
 
+        public bool GeneratePathProperty { get; set; }
+
         public bool HasFolder(string name)
         {
             return InstalledPackageFolderNames.Contains(name);
