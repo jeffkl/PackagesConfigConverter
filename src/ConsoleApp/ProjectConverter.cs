@@ -177,6 +177,11 @@ namespace PackagesConfigProjectConverter
             {
                 itemElement.AddMetadataAsAttribute("PrivateAssets", privateAssets.ToString());
             }
+            
+            if (package.GeneratePathProperty)
+            {
+                itemElement.AddMetadataAsAttribute("GeneratePathProperty", bool.TrueString);
+            }
 
             return itemElement;
         }
@@ -526,8 +531,20 @@ namespace PackagesConfigProjectConverter
                     }
                     else
                     {
-                        path = $"$(NuGetPackageRoot){path.Substring(_globalPackagesFolder.Length)}";
+                        var rootedPath = path.Substring(_globalPackagesFolder.Length);
+                        var splitPath =
+                            rootedPath.Split(
+                                new char[]
+                                {
+                                    Path.DirectorySeparatorChar,
+                                    Path.AltDirectorySeparatorChar
+                                },
+                                StringSplitOptions.RemoveEmptyEntries);
+                        var relativePath = string.Join(Path.DirectorySeparatorChar.ToString(), splitPath.Skip(2));
+                        var generatedProperty = $"$(Pkg{package.PackageId.Replace(".", "_")})";
+                        path = $"{generatedProperty}\\{relativePath}";
 
+                        package.GeneratePathProperty = true;
                         elementPath.Set(path);
                     }
                 }
