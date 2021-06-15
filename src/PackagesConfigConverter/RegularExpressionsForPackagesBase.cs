@@ -8,59 +8,59 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
     internal abstract class RegularExpressionsForPackagesBase : IDictionary<PackageIdentity, Regex>
     {
         protected const string SemVerPattern = @"(?<version>\d*\.\d*\.\d*\.?\d*-?[\w\d\-]*)";
 
-        private readonly Dictionary<PackageIdentity, Regex> _regexes = new Dictionary<PackageIdentity, Regex>();
+        private readonly Dictionary<PackageIdentity, Regex> _regularExpressions = new ();
 
-        public int Count => _regexes.Count;
+        public int Count => _regularExpressions.Count;
 
         public bool IsReadOnly => false;
 
-        public ICollection<PackageIdentity> Keys => _regexes.Keys;
+        public ICollection<PackageIdentity> Keys => _regularExpressions.Keys;
 
-        public ICollection<Regex> Values => _regexes.Values;
+        public ICollection<Regex> Values => _regularExpressions.Values;
 
         public Regex this[PackageIdentity key]
         {
             get
             {
-                if (!_regexes.ContainsKey(key))
+                if (!_regularExpressions.ContainsKey(key))
                 {
-                    _regexes.Add(key, new Regex(GetRegularExpression(key), RegexOptions.IgnoreCase));
+                    _regularExpressions.Add(key, new Regex(GetRegularExpression(key), RegexOptions.IgnoreCase));
                 }
 
-                return _regexes[key];
+                return _regularExpressions[key];
             }
-            set => _regexes[key] = value;
+            set => _regularExpressions[key] = value;
         }
 
         public void Add(KeyValuePair<PackageIdentity, Regex> item)
         {
-            _regexes.Add(item.Key, item.Value);
+            _regularExpressions.Add(item.Key, item.Value);
         }
 
         public void Add(PackageIdentity key, Regex value)
         {
-            _regexes.Add(key, value);
+            _regularExpressions.Add(key, value);
         }
 
         public void Clear()
         {
-            _regexes.Clear();
+            _regularExpressions.Clear();
         }
 
         public bool Contains(KeyValuePair<PackageIdentity, Regex> item)
         {
-            return _regexes.ContainsKey(item.Key);
+            return _regularExpressions.ContainsKey(item.Key);
         }
 
         public bool ContainsKey(PackageIdentity key)
         {
-            return _regexes.ContainsKey(key);
+            return _regularExpressions.ContainsKey(key);
         }
 
         public void CopyTo(KeyValuePair<PackageIdentity, Regex>[] array, int arrayIndex)
@@ -70,7 +70,7 @@ namespace PackagesConfigProjectConverter
 
         public IEnumerator<KeyValuePair<PackageIdentity, Regex>> GetEnumerator()
         {
-            return _regexes.GetEnumerator();
+            return _regularExpressions.GetEnumerator();
         }
 
         IEnumerator IEnumerable.GetEnumerator()
@@ -90,7 +90,7 @@ namespace PackagesConfigProjectConverter
 
         public bool TryGetValue(PackageIdentity key, out Regex value)
         {
-            return _regexes.TryGetValue(key, out value);
+            return _regularExpressions.TryGetValue(key, out value);
         }
 
         protected abstract string GetRegularExpression(PackageIdentity packageIdentity);

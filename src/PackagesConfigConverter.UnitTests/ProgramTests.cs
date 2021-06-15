@@ -6,7 +6,7 @@ using Shouldly;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PackagesConfigProjectConverter.UnitTests
+namespace PackagesConfigConverter.UnitTests
 {
     public class ProgramTests : TestBase
     {

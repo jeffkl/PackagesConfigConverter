@@ -11,7 +11,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Xml;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
     internal static class ExtensionMethods
     {
@@ -34,11 +34,6 @@ namespace PackagesConfigProjectConverter
             return itemElement;
         }
 
-        public static string GetIncludeFullPath(this ProjectItemElement itemElement)
-        {
-            return GetProjectFullPath(itemElement.ContainingProject, itemElement.Include);
-        }
-
         public static string GetProjectFullPath(this ProjectRootElement project, string path)
         {
             if ((path.StartsWith(ParentDirectory) || path.StartsWith(ThisDirectory)) && path.IndexOf("*", StringComparison.Ordinal) == -1)
@@ -47,11 +42,6 @@ namespace PackagesConfigProjectConverter
             }
 
             return path;
-        }
-
-        public static string GetReferenceItemPath(this ProjectItemElement itemElement)
-        {
-            return GetProjectFullPath(itemElement.ContainingProject, itemElement.Metadata.Value("HintPath") ?? itemElement.Include);
         }
 
         public static void Remove(this ProjectElement element)

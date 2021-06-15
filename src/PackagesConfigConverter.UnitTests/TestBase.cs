@@ -6,7 +6,7 @@ using System;
 using Xunit.Abstractions;
 using Xunit.Sdk;
 
-namespace PackagesConfigProjectConverter.UnitTests
+namespace PackagesConfigConverter.UnitTests
 {
     public abstract class TestBase : IDisposable
     {
@@ -23,9 +23,9 @@ namespace PackagesConfigProjectConverter.UnitTests
         {
         }
 
-        protected void ConfigureConsole(string readline = null)
+        protected void ConfigureConsole(string readLine = null)
         {
-            _console = new TestOutputHandlerConsole(TestOutputHelper, readline);
+            _console = new TestOutputHandlerConsole(TestOutputHelper, readLine);
 
             Console.SetOut(_console.Out);
             Console.SetError(_console.Error);

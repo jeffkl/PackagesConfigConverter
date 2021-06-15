@@ -4,9 +4,8 @@
 
 using CommandLine;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
-    // [CommandLineArguments(Program = "PackagesConfigConverter", Title = "PackagesConfigConverter", HelpText = "Converts a repository from packages.config to PackageReference")]
     public class ProgramArguments
     {
         [Option('d', HelpText = "Launch the debugger before running the program")]
@@ -20,9 +19,6 @@ namespace PackagesConfigProjectConverter
 
         [Option('l', HelpText = "Log file to write to", MetaValue = "log")]
         public string LogFile { get; set; }
-
-        [Option('q', HelpText = "Verbose output")]
-        public bool Quiete { get; set; }
 
         [Option('r', HelpText = "Full path to the repository root to convert", Required = true)]
         public string RepoRoot { get; set; }

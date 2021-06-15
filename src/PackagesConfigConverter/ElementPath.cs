@@ -5,7 +5,7 @@
 using Microsoft.Build.Construction;
 using System;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
     internal class ElementPath
     {

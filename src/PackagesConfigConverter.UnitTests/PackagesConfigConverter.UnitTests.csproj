@@ -1,8 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
-    <RootNamespace>PackagesConfigProjectConverter.UnitTests</RootNamespace>
-    <AssemblyName>PackagesConfigProjectConverter.UnitTests</AssemblyName>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
@@ -12,6 +10,6 @@
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\ConsoleApp\ConsoleApp.csproj" />
+    <ProjectReference Include="..\PackagesConfigConverter\PackagesConfigConverter.csproj" />
   </ItemGroup>
 </Project>

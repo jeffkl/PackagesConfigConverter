@@ -5,7 +5,7 @@
 using System;
 using System.Threading;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
     public interface IProjectConverter : IDisposable
     {

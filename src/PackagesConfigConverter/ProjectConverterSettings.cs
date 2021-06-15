@@ -5,7 +5,7 @@
 using log4net;
 using System.Text.RegularExpressions;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
     public sealed class ProjectConverterSettings
     {

@@ -26,17 +26,17 @@ using System.Threading;
 using System.Xml.Linq;
 
 // ReSharper disable CollectionNeverUpdated.Local
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
     internal sealed class ProjectConverter : IProjectConverter
     {
-        private static readonly HashSet<string> ItemsToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "packages.config" };
-        private static readonly HashSet<string> PropertiesToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "NuGetPackageImportStamp" };
-        private static readonly HashSet<string> TargetsToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "EnsureNuGetPackageBuildImports" };
+        private static readonly HashSet<string> ItemsToRemove = new (StringComparer.OrdinalIgnoreCase) { "packages.config" };
+        private static readonly HashSet<string> PropertiesToRemove = new (StringComparer.OrdinalIgnoreCase) { "NuGetPackageImportStamp" };
+        private static readonly HashSet<string> TargetsToRemove = new (StringComparer.OrdinalIgnoreCase) { "EnsureNuGetPackageBuildImports" };
         private readonly ProjectConverterSettings _converterSettings;
         private readonly string _globalPackagesFolder;
         private readonly ISettings _nugetSettings;
-        private readonly ProjectCollection _projectCollection = new ProjectCollection();
+        private readonly ProjectCollection _projectCollection = new ();
         private readonly string _repositoryPath;
 
         public ProjectConverter(ProjectConverterSettings converterSettings)
@@ -212,17 +212,14 @@ namespace PackagesConfigProjectConverter
                 {
                     ProcessElement(element, packages);
 
-                    if (packageReferenceItemGroupElement == null && element is ProjectItemElement itemElement && itemElement.ItemType.Equals("Reference"))
+                    if (packageReferenceItemGroupElement == null && element is ProjectItemElement { ItemType: "Reference" })
                     {
                         // Find the first Reference item and use it to add PackageReference items to, otherwise a new ItemGroup is added
                         packageReferenceItemGroupElement = element.Parent as ProjectItemGroupElement;
                     }
                 }
 
-                if (packageReferenceItemGroupElement == null)
-                {
-                    packageReferenceItemGroupElement = project.AddItemGroup();
-                }
+                packageReferenceItemGroupElement ??= project.AddItemGroup();
 
                 Log.Info("    Current package references:");
 
@@ -243,14 +240,14 @@ namespace PackagesConfigProjectConverter
                     {
                         FrameworkConstants.CommonFrameworks.Net45,
                     };
-                    using (SourceCacheContext sourceCacheContext = new SourceCacheContext
+
+                    using SourceCacheContext sourceCacheContext = new SourceCacheContext
                     {
                         IgnoreFailedSources = true,
-                    })
-                    {
-                        RestoreTargetGraph packageRestoreGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks, sourceCacheContext);
-                        TrimPackages(packages, projectPath, packageRestoreGraph.Flattened);
-                    }
+                    };
+
+                    RestoreTargetGraph packageRestoreGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks, sourceCacheContext);
+                    TrimPackages(packages, projectPath, packageRestoreGraph.Flattened);
                 }
 
                 Log.Info("    Converted package references:");
@@ -291,30 +288,29 @@ namespace PackagesConfigProjectConverter
                 FrameworkConstants.CommonFrameworks.Net45,
             };
 
-            using (SourceCacheContext sourceCacheContext = new SourceCacheContext
+            using SourceCacheContext sourceCacheContext = new SourceCacheContext
             {
                 IgnoreFailedSources = true,
-            })
+            };
+
+            RestoreTargetGraph restoreTargetGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks, sourceCacheContext);
+
+            if (restoreTargetGraph != null)
             {
-                RestoreTargetGraph restoreTargetGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks, sourceCacheContext);
-
-                if (restoreTargetGraph != null)
+                IEnumerable<GraphItem<RemoteResolveResult>> flatPackageDependencies = restoreTargetGraph.Flattened.Where(i => i.Key.Type == LibraryType.Package);
+                foreach (GraphItem<RemoteResolveResult> packageDependency in flatPackageDependencies)
                 {
-                    IEnumerable<GraphItem<RemoteResolveResult>> flatPackageDependencies = restoreTargetGraph.Flattened.Where(i => i.Key.Type == LibraryType.Package);
-                    foreach (GraphItem<RemoteResolveResult> packageDependency in flatPackageDependencies)
+                    (LibraryIdentity library, _) = (packageDependency.Key, packageDependency.Data);
+                    PackageReference packageReference = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
+
+                    if (packageReference == null)
                     {
-                        (LibraryIdentity library, _) = (packageDependency.Key, packageDependency.Data);
-                        PackageReference packageReference = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
+                        Log.Warn($"{projectPath}: The transitive package dependency \"{library.Name} {library.Version}\" was not in the packages.config.  After converting to PackageReference, new dependencies will be pulled in transitively which could lead to restore or build errors");
 
-                        if (packageReference == null)
+                        packages.Add(new PackageReference(new PackageIdentity(library.Name, library.Version), NuGetFramework.AnyFramework, true, false, true, new VersionRange(library.Version), PackagePathResolver, VersionFolderPathResolver)
                         {
-                            Log.Warn($"{projectPath}: The transitive package dependency \"{library.Name} {library.Version}\" was not in the packages.config.  After converting to PackageReference, new dependencies will be pulled in transitively which could lead to restore or build errors");
-
-                            packages.Add(new PackageReference(new PackageIdentity(library.Name, library.Version), NuGetFramework.AnyFramework, true, false, true, new VersionRange(library.Version), PackagePathResolver, VersionFolderPathResolver)
-                            {
-                                IsMissingTransitiveDependency = true,
-                            });
-                        }
+                            IsMissingTransitiveDependency = true,
+                        });
                     }
                 }
             }

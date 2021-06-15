@@ -6,7 +6,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PackagesConfigProjectConverter.UnitTests
+namespace PackagesConfigConverter.UnitTests
 {
     public class MockProjectConverter : IProjectConverter
     {

@@ -7,15 +7,15 @@ using System.IO;
 using System.Text;
 using Xunit.Abstractions;
 
-namespace PackagesConfigProjectConverter.UnitTests
+namespace PackagesConfigConverter.UnitTests
 {
     public class TestOutputHandlerConsole
     {
-        public TestOutputHandlerConsole(ITestOutputHelper helper, string readline)
+        public TestOutputHandlerConsole(ITestOutputHelper helper, string readLine)
         {
             Out = new TestOutputHelperTextWriter(helper, "STDOUT: ");
             Error = new TestOutputHelperTextWriter(helper, "STDERR: ");
-            In = new TestTextReader(readline);
+            In = new TestTextReader(readLine);
         }
 
         public TextWriter Error { get; }
@@ -55,21 +55,21 @@ namespace PackagesConfigProjectConverter.UnitTests
 
         private class TestTextReader : TextReader
         {
-            private readonly string _readline;
+            private readonly string _readLine;
 
-            public TestTextReader(string readline)
+            public TestTextReader(string readLine)
             {
-                _readline = readline;
+                _readLine = readLine;
             }
 
             public override string ReadLine()
             {
-                if (_readline == null)
+                if (_readLine == null)
                 {
                     throw new InvalidOperationException();
                 }
 
-                return _readline;
+                return _readLine;
             }
         }
     }

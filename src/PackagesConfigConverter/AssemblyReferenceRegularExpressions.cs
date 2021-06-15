@@ -5,13 +5,13 @@
 using NuGet.Packaging.Core;
 using System.Text.RegularExpressions;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
-    internal class AnalyzerRegularExpressions : RegularExpressionsForPackagesBase
+    internal class AssemblyReferenceRegularExpressions : RegularExpressionsForPackagesBase
     {
         protected override string GetRegularExpression(PackageIdentity packageIdentity)
         {
-            return $@".*\\{Regex.Escape(packageIdentity.Id)}\.{SemVerPattern}\\analyzers\\.*";
+            return $@".*\\{Regex.Escape(packageIdentity.Id)}\.{SemVerPattern}\\lib\\.*";
         }
     }
 }

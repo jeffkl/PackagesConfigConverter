@@ -4,7 +4,7 @@
 
 using System;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
     public static class ProjectConverterFactory
     {

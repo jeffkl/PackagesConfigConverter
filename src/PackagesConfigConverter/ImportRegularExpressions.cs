@@ -5,7 +5,7 @@
 using NuGet.Packaging.Core;
 using System.Text.RegularExpressions;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
     internal class ImportRegularExpressions : RegularExpressionsForPackagesBase
     {
