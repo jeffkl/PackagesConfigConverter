@@ -1,5 +1,9 @@
-﻿using System;
+﻿// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
+
 using Microsoft.Build.Construction;
+using System;
 
 namespace PackagesConfigProjectConverter
 {
@@ -23,6 +27,7 @@ namespace PackagesConfigProjectConverter
                             HintPath = true;
                         }
                     }
+
                     break;
 
                 case ProjectImportElement importElement:
@@ -37,8 +42,11 @@ namespace PackagesConfigProjectConverter
         }
 
         public ProjectElement Element { get; }
+
         public string FullPath { get; }
+
         public bool HintPath { get; }
+
         public string OriginalPath { get; }
 
         public void Set(string path)
@@ -55,6 +63,7 @@ namespace PackagesConfigProjectConverter
                     {
                         itemElement.Include = path;
                     }
+
                     break;
 
                 case ProjectImportElement importElement:

@@ -1,4 +1,8 @@
-﻿using Microsoft.Build.Construction;
+﻿// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
+
+using Microsoft.Build.Construction;
 using NuGet.Frameworks;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
@@ -25,24 +29,28 @@ namespace PackagesConfigProjectConverter
         }
 
         public IEnumerable<ProjectElement> AllElements => AnalyzerItems.Cast<ProjectElement>().Concat(AssemblyReferences).Concat(Imports);
+
         public List<ProjectItemElement> AnalyzerItems { get; } = new List<ProjectItemElement>();
+
         public List<ProjectItemElement> AssemblyReferences { get; } = new List<ProjectItemElement>();
+
+        public bool GeneratePathProperty { get; set; }
+
         public string GlobalInstalledPath { get; }
+
         public List<ProjectImportElement> Imports { get; } = new List<ProjectImportElement>();
 
         public string InstalledPackageFilePath { get; }
 
         public IReadOnlyCollection<string> InstalledPackageFolderNames => _installedPackageFolderNames ?? (_installedPackageFolderNames = GetPackageFolderNames());
 
+        public bool IsMissingTransitiveDependency { get; set; }
+
         public string PackageId => PackageIdentity.Id;
 
         public NuGetVersion PackageVersion => PackageIdentity.Version;
 
         public string RepositoryInstalledPath { get; }
-
-        public bool IsMissingTransitiveDependency { get; set; }
-
-        public bool GeneratePathProperty { get; set; }
 
         public bool HasFolder(string name)
         {

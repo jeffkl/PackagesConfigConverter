@@ -12,4 +12,9 @@
   <ItemGroup>
     <GlobalPackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.2" />
   </ItemGroup>
+  <ItemGroup Condition="'$(EnableStyleCopAnalyzers)' != 'false'">
+    <GlobalPackageReference Include="StyleCop.Analyzers" Version="1.1.118" />
+    <Compile Include="$(MSBuildThisFileDirectory)src\GlobalSuppressions.cs" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false" />
+  </ItemGroup>
 </Project>

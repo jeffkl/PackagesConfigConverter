@@ -1,4 +1,8 @@
-﻿using System;
+﻿// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
+
+using System;
 
 namespace PackagesConfigProjectConverter
 {

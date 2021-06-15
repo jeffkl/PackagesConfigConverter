@@ -1,4 +1,8 @@
-﻿using CommandLine;
+﻿// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
+
+using CommandLine;
 using log4net;
 using log4net.Appender;
 using log4net.Core;
@@ -14,7 +18,7 @@ namespace PackagesConfigProjectConverter
     {
         private static readonly CancellationTokenSource CancellationTokenSource = new CancellationTokenSource();
 
-        private static ILog Log = LogManager.GetLogger(typeof(Program));
+        private static readonly ILog Log = LogManager.GetLogger(typeof(Program));
 
         public static int Main(string[] args)
         {
@@ -73,13 +77,13 @@ namespace PackagesConfigProjectConverter
                 Include = arguments.Include.ToRegex(),
                 Exclude = arguments.Exclude.ToRegex(),
                 Log = Log,
-                TrimPackages = arguments.Trim
+                TrimPackages = arguments.Trim,
             };
 
             Log.Info($" RepositoryRoot: '{settings.RepositoryRoot}'");
             Log.Info($"  Include regex: '{settings.Include}'");
             Log.Info($"  Exclude regex: '{settings.Exclude}'");
-            Log.Info(String.Empty);
+            Log.Info(string.Empty);
 
             if (!arguments.Yes)
             {

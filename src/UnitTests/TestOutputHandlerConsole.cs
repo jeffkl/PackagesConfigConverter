@@ -1,6 +1,9 @@
+// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
+
 using System;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using Xunit.Abstractions;
 
