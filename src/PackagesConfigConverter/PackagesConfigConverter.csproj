@@ -2,13 +2,14 @@
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
     <OutputType>Exe</OutputType>
-    <RootNamespace>PackagesConfigProjectConverter</RootNamespace>
-    <AssemblyName>PackagesConfigProjectConverter</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CommandLineParser" />
     <PackageReference Include="log4net" />
     <PackageReference Include="Microsoft.Build" />
     <PackageReference Include="NuGet.Commands" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PackagesConfigConverter.UnitTests" />
   </ItemGroup>
 </Project>

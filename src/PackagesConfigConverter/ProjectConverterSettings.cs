@@ -1,15 +1,12 @@
-﻿using log4net;
-using System;
+﻿// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
+
+using log4net;
 using System.Text.RegularExpressions;
-using System.Threading;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
-    public interface IProjectConverter : IDisposable
-    {
-        void ConvertRepository(CancellationToken cancellationToken);
-    }
-
     public sealed class ProjectConverterSettings
     {
         public Regex Exclude { get; set; }

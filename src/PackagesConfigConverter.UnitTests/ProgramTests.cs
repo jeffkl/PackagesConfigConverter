@@ -1,10 +1,12 @@
+// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
+
 using Shouldly;
-using System;
-using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PackagesConfigProjectConverter.UnitTests
+namespace PackagesConfigConverter.UnitTests
 {
     public class ProgramTests : TestBase
     {
@@ -41,7 +43,6 @@ namespace PackagesConfigProjectConverter.UnitTests
             projectConverter.Settings.Include.ToString().ShouldBe("0984A6D1A29C444F83DB7C8107A19358");
             projectConverter.Settings.Exclude.ToString().ShouldBe("8ED906CD071844EB8F8403E008389044");
         }
-
 
         [Fact]
         public void InvalidArguments()

@@ -1,6 +1,10 @@
-﻿using System;
+﻿// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
 
-namespace PackagesConfigProjectConverter
+using System;
+
+namespace PackagesConfigConverter
 {
     public static class ProjectConverterFactory
     {

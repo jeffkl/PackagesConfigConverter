@@ -1,4 +1,8 @@
-﻿using CommandLine;
+﻿// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
+
+using CommandLine;
 using log4net;
 using log4net.Appender;
 using log4net.Core;
@@ -8,13 +12,13 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 
-namespace PackagesConfigProjectConverter
+namespace PackagesConfigConverter
 {
     internal class Program
     {
-        private static readonly CancellationTokenSource CancellationTokenSource = new CancellationTokenSource();
+        private static readonly CancellationTokenSource CancellationTokenSource = new ();
 
-        private static ILog Log = LogManager.GetLogger(typeof(Program));
+        private static readonly ILog Log = LogManager.GetLogger(typeof(Program));
 
         public static int Main(string[] args)
         {
@@ -22,7 +26,7 @@ namespace PackagesConfigProjectConverter
 
             try
             {
-                Console.CancelKeyPress += (sender, e) =>
+                Console.CancelKeyPress += (_, e) =>
                 {
                     e.Cancel = false;
 
@@ -40,7 +44,7 @@ namespace PackagesConfigProjectConverter
                     })
                     .ParseArguments<ProgramArguments>(args)
                     .WithParsed(Run)
-                    .WithNotParsed(errors => ret = 1);
+                    .WithNotParsed(_ => ret = 1);
             }
             catch (OperationCanceledException)
             {
@@ -73,27 +77,26 @@ namespace PackagesConfigProjectConverter
                 Include = arguments.Include.ToRegex(),
                 Exclude = arguments.Exclude.ToRegex(),
                 Log = Log,
-                TrimPackages = arguments.Trim
+                TrimPackages = arguments.Trim,
             };
 
             Log.Info($" RepositoryRoot: '{settings.RepositoryRoot}'");
             Log.Info($"  Include regex: '{settings.Include}'");
             Log.Info($"  Exclude regex: '{settings.Exclude}'");
-            Log.Info(String.Empty);
+            Log.Info(string.Empty);
 
             if (!arguments.Yes)
             {
                 Console.Write("Ensure there are no files checked out in git before continuing!  Continue? (Y/N) ");
-                if (!Console.In.ReadLine().StartsWith("Y", StringComparison.OrdinalIgnoreCase))
+                if (!Console.In.ReadLine() !.StartsWith("Y", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new OperationCanceledException();
                 }
             }
 
-            using (IProjectConverter projectConverter = ProjectConverterFactory.Create(settings))
-            {
-                projectConverter.ConvertRepository(CancellationTokenSource.Token);
-            }
+            using IProjectConverter projectConverter = ProjectConverterFactory.Create(settings);
+
+            projectConverter.ConvertRepository(CancellationTokenSource.Token);
         }
 
         private static void ConfigureLogger(ProgramArguments arguments)

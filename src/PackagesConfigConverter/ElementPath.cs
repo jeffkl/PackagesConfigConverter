@@ -1,7 +1,11 @@
-﻿using System;
-using Microsoft.Build.Construction;
+﻿// Copyright (c) Jeff Kluge. All rights reserved.
+//
+// Licensed under the MIT license.
 
-namespace PackagesConfigProjectConverter
+using Microsoft.Build.Construction;
+using System;
+
+namespace PackagesConfigConverter
 {
     internal class ElementPath
     {
@@ -23,6 +27,7 @@ namespace PackagesConfigProjectConverter
                             HintPath = true;
                         }
                     }
+
                     break;
 
                 case ProjectImportElement importElement:
@@ -37,8 +42,11 @@ namespace PackagesConfigProjectConverter
         }
 
         public ProjectElement Element { get; }
+
         public string FullPath { get; }
+
         public bool HintPath { get; }
+
         public string OriginalPath { get; }
 
         public void Set(string path)
@@ -55,6 +63,7 @@ namespace PackagesConfigProjectConverter
                     {
                         itemElement.Include = path;
                     }
+
                     break;
 
                 case ProjectImportElement importElement:
