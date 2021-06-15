@@ -1,6 +1,6 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project>
+  <Sdk Name="Microsoft.Build.CentralPackageVersions" Version="2.0.79" />
   <PropertyGroup>
-    <DebugType Condition="'$(Configuration)' == 'Debug'">Full</DebugType>
+    <DebugType Condition="'$(Configuration)' != 'Release'">Full</DebugType>
   </PropertyGroup>
 </Project>

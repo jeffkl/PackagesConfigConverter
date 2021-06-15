@@ -1,0 +1,15 @@
+<Project>
+  <ItemGroup>
+    <PackageReference Update="CommandLineParser" Version="2.8.0" />
+    <PackageReference Update="log4net" Version="2.0.12" />
+    <PackageReference Update="Microsoft.Build" Version="16.10.0" />
+    <PackageReference Update="Microsoft.NET.Test.Sdk" Version="16.10.0" />
+    <PackageReference Update="NuGet.Commands" Version="5.10.0" />
+    <PackageReference Update="Shouldly" Version="4.0.3" />
+    <PackageReference Update="xunit" Version="2.4.1" />
+    <PackageReference Update="xunit.runner.visualstudio" Version="2.4.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <GlobalPackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.2" />
+  </ItemGroup>
+</Project>
