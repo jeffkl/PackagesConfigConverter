@@ -18,6 +18,8 @@ namespace PackagesConfigProjectConverter
 
         public ILog Log { get; set; }
 
+        public string NuGetConfigPath { get; set; } = "(Default)";
+
         public string RepositoryRoot { get; set; }
 
         public bool TrimPackages { get; set; }

@@ -67,8 +67,8 @@ namespace PackagesConfigProjectConverter
             bool success = true;
 
             Log.Info($"Converting repository \"{_converterSettings.RepositoryRoot}\"...");
-
-            Log.Info($"  NuGet configuration file : \"{Path.Combine(_nugetSettings.Root, _nugetSettings.FileName)}\"");
+            
+            Log.Info($"  NuGet configuration file : \"{_converterSettings.NuGetConfigPath}\"");
 
             foreach (string file in Directory.EnumerateFiles(_converterSettings.RepositoryRoot, "*.csproj", SearchOption.AllDirectories)
                 .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
@@ -118,6 +118,8 @@ namespace PackagesConfigProjectConverter
 
             if (File.Exists(nugetConfigPath))
             {
+                converterSettings.NuGetConfigPath = nugetConfigPath;
+
                 return Settings.LoadSpecificSettings(converterSettings.RepositoryRoot, Settings.DefaultSettingsFileName);
             }
 
@@ -350,7 +352,7 @@ namespace PackagesConfigProjectConverter
                     ProjectUniqueName = projectPath,
                     OutputPath = Path.GetTempPath(),
                     OriginalTargetFrameworks = targetFrameworks.Select(i => i.ToString()).ToList(),
-                    ConfigFilePaths = SettingsUtility.GetConfigFilePaths(_nugetSettings).ToList(),
+                    ConfigFilePaths = _nugetSettings.GetConfigFilePaths(),
                     PackagesPath = SettingsUtility.GetGlobalPackagesFolder(_nugetSettings),
                     Sources = SettingsUtility.GetEnabledSources(_nugetSettings).ToList(),
                     FallbackFolders = SettingsUtility.GetFallbackPackageFolders(_nugetSettings).ToList()
@@ -358,6 +360,8 @@ namespace PackagesConfigProjectConverter
                 FilePath = projectPath,
                 Name = Path.GetFileNameWithoutExtension(projectPath),
             };
+
+            
 
             DependencyGraphSpec dependencyGraphSpec = new DependencyGraphSpec();
 
