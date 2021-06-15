@@ -26,3 +26,6 @@ jobs:
 
     - name: Build
       run: msbuild
+      
+    - name: Test
+      run: vstest.console
