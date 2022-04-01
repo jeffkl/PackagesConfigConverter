@@ -2,7 +2,7 @@
   <ItemGroup>
     <PackageReference Update="CommandLineParser" Version="2.8.0" />
     <PackageReference Update="log4net" Version="2.0.13" />
-    <PackageReference Update="Microsoft.Build" Version="16.11.0" />
+    <PackageReference Update="Microsoft.Build" Version="17.1.0" />
     <PackageReference Update="Microsoft.NET.Test.Sdk" Version="17.0.0" />
     <PackageReference Update="NuGet.Commands" Version="6.0.0" />
     <PackageReference Update="Shouldly" Version="4.0.3" />
