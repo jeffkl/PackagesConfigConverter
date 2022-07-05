@@ -1,6 +1,6 @@
 <Project>
   <ItemGroup>
-    <PackageReference Update="CommandLineParser" Version="2.8.0" />
+    <PackageReference Update="CommandLineParser" Version="2.9.1" />
     <PackageReference Update="log4net" Version="2.0.14" />
     <PackageReference Update="Microsoft.Build" Version="16.11.0" />
     <PackageReference Update="Microsoft.NET.Test.Sdk" Version="17.2.0" />
