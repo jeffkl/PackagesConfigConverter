@@ -3,7 +3,7 @@
     <PackageReference Update="CommandLineParser" Version="2.9.1" />
     <PackageReference Update="log4net" Version="2.0.14" />
     <PackageReference Update="Microsoft.Build" Version="17.2.0" />
-    <PackageReference Update="Microsoft.NET.Test.Sdk" Version="17.2.0" />
+    <PackageReference Update="Microsoft.NET.Test.Sdk" Version="17.3.2" />
     <PackageReference Update="NuGet.Commands" Version="6.2.1" />
     <PackageReference Update="Shouldly" Version="4.0.3" />
     <PackageReference Update="xunit" Version="2.4.1" />
