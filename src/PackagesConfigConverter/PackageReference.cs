@@ -64,10 +64,31 @@ namespace PackagesConfigConverter
                 return Array.Empty<string>();
             }
 
-            return new HashSet<string>(
-                Directory.EnumerateDirectories(RepositoryInstalledPath)
-                    .Select(i => i.Substring(i.LastIndexOf(Path.DirectorySeparatorChar) + 1)),
-                StringComparer.OrdinalIgnoreCase);
+            var folderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string dir in Directory.EnumerateDirectories(RepositoryInstalledPath))
+            {
+                if (HasAnyRealFiles(dir))
+                {
+                    string dirName = dir.Substring(dir.LastIndexOf(Path.DirectorySeparatorChar) + 1);
+                    folderNames.Add(dirName);
+                }
+            }
+
+            return folderNames;
+
+            static bool HasAnyRealFiles(string dir)
+            {
+                // Ignore the special "_._" file.
+                foreach (string file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+                {
+                    if (!Path.GetFileName(file).Equals("_._"))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
         }
     }
 }
