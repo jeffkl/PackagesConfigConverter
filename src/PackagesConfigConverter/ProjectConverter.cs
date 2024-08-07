@@ -75,9 +75,7 @@ namespace PackagesConfigConverter
             Log.Info($"  NuGet configuration file : \"{_converterSettings.NuGetConfigPath}\"");
 
             foreach (string file in Directory.EnumerateFiles(_converterSettings.RepositoryRoot, "*.csproj", SearchOption.AllDirectories)
-                .TakeWhile(_ => !cancellationToken.IsCancellationRequested)
-                .Where(f => _converterSettings.Exclude == null || !_converterSettings.Exclude.IsMatch(f))
-                .Where(f => _converterSettings.Include == null || _converterSettings.Include.IsMatch(f)))
+                .TakeWhile(_ => !cancellationToken.IsCancellationRequested))
             {
                 if (_converterSettings.Exclude != null && _converterSettings.Exclude.IsMatch(file))
                 {
