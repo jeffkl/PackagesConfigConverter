@@ -7,5 +7,6 @@
     <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
     <NoWarn>$(NoWarn);SA0001</NoWarn>
     <RestoreUseStaticGraphEvaluation>true</RestoreUseStaticGraphEvaluation>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
   </PropertyGroup>
 </Project>
