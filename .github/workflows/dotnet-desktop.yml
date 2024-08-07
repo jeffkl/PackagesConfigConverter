@@ -14,18 +14,32 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1.0.2
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
 
-    - name: Setup VSTest
-      uses: darenm/Setup-VSTest@v1
+    - name: Restore
+      run: dotnet restore -bl:logs/restore.binlog
 
     - name: Build
-      run: msbuild
-      
+      run: dotnet build --configuration Debug --no-restore -bl:logs/build.binlog
+
     - name: Test
-      run: vstest.console **\*.UnitTests.dll
+      run: dotnet test --configuration Debug --no-build --logger trx --results-directory TestResults
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results
+        path: ./TestResults
+      if: ${{ always() }} # Always run this step even on failure
+
+    - name: Upload logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: logs
+        path: ./logs
+      if: ${{ always() }} # Always run this step even on failure
