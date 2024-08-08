@@ -40,6 +40,7 @@ namespace PackagesConfigConverter
         private readonly ISettings _nugetSettings;
         private readonly ProjectCollection _projectCollection = new ();
         private readonly string _repositoryPath;
+        private readonly PackageInfoFactory _packageInfoFactory;
         private readonly RestoreCommandProvidersCache _restoreCommandProvidersCache;
         private readonly RestoreArgs _restoreArgs;
 
@@ -59,9 +60,9 @@ namespace PackagesConfigConverter
 
             _globalPackagesFolder = Path.GetFullPath(SettingsUtility.GetGlobalPackagesFolder(_nugetSettings)).Trim(Path.DirectorySeparatorChar);
 
-            PackagePathResolver = new PackagePathResolver(_repositoryPath);
-
-            VersionFolderPathResolver = new VersionFolderPathResolver(_globalPackagesFolder);
+            var packagePathResolver = new PackagePathResolver(_repositoryPath);
+            var versionFolderPathResolver = new VersionFolderPathResolver(_globalPackagesFolder);
+            _packageInfoFactory = new PackageInfoFactory(packagePathResolver, versionFolderPathResolver);
 
             _restoreCommandProvidersCache = new RestoreCommandProvidersCache();
             _restoreArgs = new RestoreArgs
@@ -78,10 +79,6 @@ namespace PackagesConfigConverter
         }
 
         public ILogger Log => _converterSettings.Log;
-
-        public PackagePathResolver PackagePathResolver { get; internal set; }
-
-        public VersionFolderPathResolver VersionFolderPathResolver { get; internal set; }
 
         public void ConvertRepository(CancellationToken cancellationToken)
         {
@@ -146,25 +143,25 @@ namespace PackagesConfigConverter
             return Settings.LoadDefaultSettings(converterSettings.RepositoryRoot, Settings.DefaultSettingsFileName, new XPlatMachineWideSetting());
         }
 
-        private ProjectItemElement AddPackageReference(ProjectItemGroupElement itemGroupElement, PackageReference package)
+        private ProjectItemElement AddPackageReference(ProjectItemGroupElement itemGroupElement, PackageUsage package)
         {
             LibraryIncludeFlags includeAssets = LibraryIncludeFlags.All;
             LibraryIncludeFlags excludeAssets = LibraryIncludeFlags.None;
 
             LibraryIncludeFlags privateAssets = LibraryIncludeFlags.None;
 
-            if (package.HasFolder("build") && package.Imports.Count == 0)
+            if (package.PackageInfo.HasFolder("build") && package.Imports.Count == 0)
             {
                 excludeAssets |= LibraryIncludeFlags.Build;
             }
 
-            if (package.HasFolder("lib") && package.AssemblyReferences.Count == 0)
+            if (package.PackageInfo.HasFolder("lib") && package.AssemblyReferences.Count == 0)
             {
                 excludeAssets |= LibraryIncludeFlags.Compile;
                 excludeAssets |= LibraryIncludeFlags.Runtime;
             }
 
-            if (package.HasFolder("analyzers") && package.AnalyzerItems.Count == 0)
+            if (package.PackageInfo.HasFolder("analyzers") && package.AnalyzerItems.Count == 0)
             {
                 excludeAssets |= LibraryIncludeFlags.Analyzers;
             }
@@ -181,9 +178,9 @@ namespace PackagesConfigConverter
                 privateAssets = LibraryIncludeFlags.All;
             }
 
-            ProjectItemElement itemElement = itemGroupElement.AppendItem("PackageReference", package.PackageIdentity.Id);
+            ProjectItemElement itemElement = itemGroupElement.AppendItem("PackageReference", package.PackageInfo.Identity.Id);
 
-            itemElement.AddMetadataAsAttribute("Version", package.PackageVersion.ToNormalizedString());
+            itemElement.AddMetadataAsAttribute("Version", package.PackageInfo.Identity.Version.ToNormalizedString());
 
             if (includeAssets != LibraryIncludeFlags.All)
             {
@@ -216,7 +213,14 @@ namespace PackagesConfigConverter
 
                 PackagesConfigReader packagesConfigReader = new PackagesConfigReader(XDocument.Load(packagesConfigPath));
 
-                List<PackageReference> packages = packagesConfigReader.GetPackages(allowDuplicatePackageIds: true).Select(i => new PackageReference(i.PackageIdentity, i.TargetFramework, i.IsUserInstalled, i.IsDevelopmentDependency, i.RequireReinstallation, i.AllowedVersions, PackagePathResolver, VersionFolderPathResolver)).ToList();
+                List<PackageUsage> packages = packagesConfigReader
+                    .GetPackages(allowDuplicatePackageIds: true)
+                    .Select(i =>
+                    {
+                        PackageInfo packageInfo = _packageInfoFactory.GetPackageInfo(i.PackageIdentity);
+                        return new PackageUsage(i.PackageIdentity, packageInfo, i.IsDevelopmentDependency);
+                    })
+                    .ToList();
 
                 List<NuGetFramework> targetFrameworks = new List<NuGetFramework>
                 {
@@ -246,9 +250,9 @@ namespace PackagesConfigConverter
 
                 Log.LogDebug("    Current package references:");
 
-                foreach (PackageReference package in packages.Where(i => !i.IsMissingTransitiveDependency))
+                foreach (PackageUsage package in packages.Where(i => !i.IsMissingTransitiveDependency))
                 {
-                    Log.LogDebug($"      {package.PackageIdentity}");
+                    Log.LogDebug($"      {package.PackageInfo.Identity}");
                 }
 
                 foreach (ProjectElement element in packages.Where(i => !i.IsMissingTransitiveDependency).SelectMany(i => i.AllElements))
@@ -264,7 +268,7 @@ namespace PackagesConfigConverter
 
                 Log.LogDebug("    Converted package references:");
 
-                foreach (PackageReference package in packages)
+                foreach (PackageUsage package in packages)
                 {
                     ProjectItemElement packageReferenceItemElement = AddPackageReference(packageReferenceItemGroupElement, package);
 
@@ -293,27 +297,28 @@ namespace PackagesConfigConverter
             return true;
         }
 
-        private void DetectMissingTransitiveDependencies(List<PackageReference> packages, string projectPath, RestoreTargetGraph restoreTargetGraph)
+        private void DetectMissingTransitiveDependencies(List<PackageUsage> packages, string projectPath, RestoreTargetGraph restoreTargetGraph)
         {
             IEnumerable<GraphItem<RemoteResolveResult>> flatPackageDependencies = restoreTargetGraph.Flattened.Where(i => i.Key.Type == LibraryType.Package);
             foreach (GraphItem<RemoteResolveResult> packageDependency in flatPackageDependencies)
             {
                 (LibraryIdentity library, _) = (packageDependency.Key, packageDependency.Data);
-                PackageReference packageReference = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
+                PackageUsage package = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
 
-                if (packageReference == null)
+                if (package == null)
                 {
                     Log.LogWarning($"{projectPath}: The transitive package dependency \"{library.Name} {library.Version}\" was not in the packages.config.  After converting to PackageReference, new dependencies will be pulled in transitively which could lead to restore or build errors");
 
-                    packages.Add(new PackageReference(new PackageIdentity(library.Name, library.Version), NuGetFramework.AnyFramework, true, false, true, new VersionRange(library.Version), PackagePathResolver, VersionFolderPathResolver)
-                    {
-                        IsMissingTransitiveDependency = true,
-                    });
+                    PackageIdentity packageIdentity = new PackageIdentity(library.Name, library.Version);
+                    PackageInfo packageInfo = _packageInfoFactory.GetPackageInfo(packageIdentity);
+                    PackageUsage missingTransitiveDependency = new PackageUsage(packageIdentity, packageInfo, isDevelopmentDependency: false);
+                    missingTransitiveDependency.IsMissingTransitiveDependency = true;
+                    packages.Add(missingTransitiveDependency);
                 }
             }
         }
 
-        private Match GetElementMatch(ElementPath elementPath, PackageReference package)
+        private Match GetElementMatch(ElementPath elementPath, PackageUsage package)
         {
             Match match = null;
 
@@ -325,7 +330,7 @@ namespace PackagesConfigConverter
 
                         if (itemElement.ItemType.Equals("Analyzer", StringComparison.OrdinalIgnoreCase))
                         {
-                            match = RegularExpressions.Analyzers[package.PackageIdentity].Match(elementPath.FullPath);
+                            match = RegularExpressions.Analyzers[package.PackageInfo.Identity].Match(elementPath.FullPath);
 
                             if (match.Success)
                             {
@@ -336,7 +341,7 @@ namespace PackagesConfigConverter
                         {
                             if (File.Exists(elementPath.FullPath))
                             {
-                                match = RegularExpressions.AssemblyReferences[package.PackageIdentity].Match(elementPath.FullPath);
+                                match = RegularExpressions.AssemblyReferences[package.PackageInfo.Identity].Match(elementPath.FullPath);
 
                                 if (match.Success)
                                 {
@@ -349,7 +354,7 @@ namespace PackagesConfigConverter
 
                     case ProjectImportElement importElement:
 
-                        match = RegularExpressions.Imports[package.PackageIdentity].Match(elementPath.FullPath);
+                        match = RegularExpressions.Imports[package.PackageInfo.Identity].Match(elementPath.FullPath);
 
                         if (match.Success)
                         {
@@ -363,7 +368,7 @@ namespace PackagesConfigConverter
             return match;
         }
 
-        private RestoreTargetGraph GetRestoreTargetGraph(List<PackageReference> packages, string projectPath, List<NuGetFramework> targetFrameworks)
+        private RestoreTargetGraph GetRestoreTargetGraph(List<PackageUsage> packages, string projectPath, List<NuGetFramework> targetFrameworks)
         {
             // The package spec details what packages to restore
             PackageSpec packageSpec = new PackageSpec(targetFrameworks.Select(i => new TargetFrameworkInformation
@@ -415,7 +420,7 @@ namespace PackagesConfigConverter
             return path != null && path.StartsWith(_repositoryPath, StringComparison.OrdinalIgnoreCase);
         }
 
-        private void ProcessElement(ProjectElement element, List<PackageReference> packages)
+        private void ProcessElement(ProjectElement element, List<PackageUsage> packages)
         {
             switch (element)
             {
@@ -454,7 +459,7 @@ namespace PackagesConfigConverter
 
             bool elementPathIsValid = false;
 
-            foreach (PackageReference package in packages.Where(i => !i.IsMissingTransitiveDependency))
+            foreach (PackageUsage package in packages.Where(i => !i.IsMissingTransitiveDependency))
             {
                 Match match = GetElementMatch(elementPath, package);
 
@@ -462,7 +467,7 @@ namespace PackagesConfigConverter
                 {
                     elementPathIsValid = true;
 
-                    if (!version.Equals(package.PackageIdentity.Version))
+                    if (!version.Equals(package.PackageInfo.Identity.Version))
                     {
                         Log.LogWarning($"  {element.Location}: The package version \"{version}\" specified in the \"{element.ElementName}\" element does not match the package version \"{package.PackageVersion}\".  After conversion, the project will reference ONLY version \"{package.PackageVersion}\"");
                     }
@@ -471,7 +476,7 @@ namespace PackagesConfigConverter
 
             if (!elementPathIsValid && IsPathRootedInRepositoryPath(elementPath.FullPath))
             {
-                PackageReference package = packages.FirstOrDefault(i => !string.IsNullOrEmpty(i.RepositoryInstalledPath) && elementPath.FullPath.StartsWith(i.RepositoryInstalledPath));
+                PackageUsage package = packages.FirstOrDefault(i => !string.IsNullOrEmpty(i.PackageInfo.RepositoryInstalledPath) && elementPath.FullPath.StartsWith(i.PackageInfo.RepositoryInstalledPath));
 
                 if (package == null)
                 {
@@ -479,7 +484,7 @@ namespace PackagesConfigConverter
                 }
                 else
                 {
-                    string path = Path.Combine(package.GlobalInstalledPath, elementPath.FullPath.Substring(package.RepositoryInstalledPath.Length + 1));
+                    string path = Path.Combine(package.PackageInfo.GlobalInstalledPath, elementPath.FullPath.Substring(package.PackageInfo.RepositoryInstalledPath.Length + 1));
 
                     if (!File.Exists(path) && !Directory.Exists(path))
                     {
@@ -507,11 +512,11 @@ namespace PackagesConfigConverter
             }
         }
 
-        private void TrimPackages(List<PackageReference> packages, string projectPath, ICollection<GraphItem<RemoteResolveResult>> flatPackageDependencies)
+        private void TrimPackages(List<PackageUsage> packages, string projectPath, ICollection<GraphItem<RemoteResolveResult>> flatPackageDependencies)
         {
-            IEnumerable<LibraryDependency> GetPackageDependencies(PackageReference package) => flatPackageDependencies.First(p => p.Key.Name.Equals(package.PackageId, StringComparison.OrdinalIgnoreCase)).Data.Dependencies;
+            IEnumerable<LibraryDependency> GetPackageDependencies(PackageUsage package) => flatPackageDependencies.First(p => p.Key.Name.Equals(package.PackageId, StringComparison.OrdinalIgnoreCase)).Data.Dependencies;
 
-            bool IsPackageInDependencySet(PackageReference packageReference, IEnumerable<LibraryDependency> dependencies) => dependencies.Any(d => d.Name.Equals(packageReference.PackageId, StringComparison.OrdinalIgnoreCase));
+            bool IsPackageInDependencySet(PackageUsage package, IEnumerable<LibraryDependency> dependencies) => dependencies.Any(d => d.Name.Equals(package.PackageId, StringComparison.OrdinalIgnoreCase));
 
             packages.RemoveAll(package =>
             {
@@ -519,7 +524,7 @@ namespace PackagesConfigConverter
 
                 if (willRemove)
                 {
-                    Log.LogWarning($"{projectPath}: The transitive package dependency {package.PackageId} {package.AllowedVersions} will be removed because it is referenced by another package in this dependency graph.");
+                    Log.LogWarning($"{projectPath}: The transitive package dependency {package.PackageId} {package.PackageVersion} will be removed because it is referenced by another package in this dependency graph.");
                 }
 
                 return willRemove;
