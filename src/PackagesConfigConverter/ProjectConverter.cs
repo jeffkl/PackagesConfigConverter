@@ -142,27 +142,54 @@ namespace PackagesConfigConverter
             return Settings.LoadDefaultSettings(converterSettings.RepositoryRoot, Settings.DefaultSettingsFileName, new XPlatMachineWideSetting());
         }
 
-        private ProjectItemElement AddPackageReference(ProjectItemGroupElement itemGroupElement, PackageUsage package)
+        private ProjectItemElement AddPackageReference(ProjectItemGroupElement itemGroupElement, PackageUsage package, LockFileTargetLibrary lockFileTargetLibrary)
         {
             LibraryIncludeFlags includeAssets = LibraryIncludeFlags.All;
             LibraryIncludeFlags excludeAssets = LibraryIncludeFlags.None;
-
             LibraryIncludeFlags privateAssets = LibraryIncludeFlags.None;
 
-            if (package.PackageInfo.HasFolder("build") && package.Imports.Count == 0)
+            LibraryIncludeFlags existingAssets = LibraryIncludeFlags.None;
+
+            if (lockFileTargetLibrary == null)
             {
-                excludeAssets |= LibraryIncludeFlags.Build;
+                Log.LogWarning($"Package: {package.PackageId}");
             }
 
-            if (package.PackageInfo.HasFolder("lib") && package.AssemblyReferences.Count == 0)
+            if (HasAnyRealFiles(lockFileTargetLibrary.Build))
             {
-                excludeAssets |= LibraryIncludeFlags.Compile;
-                excludeAssets |= LibraryIncludeFlags.Runtime;
+                existingAssets |= LibraryIncludeFlags.Build;
+                if (package.Imports.Count == 0)
+                {
+                    excludeAssets |= LibraryIncludeFlags.Build;
+                }
             }
 
-            if (package.PackageInfo.HasFolder("analyzers") && package.AnalyzerItems.Count == 0)
+            if (HasAnyRealFiles(lockFileTargetLibrary.CompileTimeAssemblies))
             {
-                excludeAssets |= LibraryIncludeFlags.Analyzers;
+                existingAssets |= LibraryIncludeFlags.Compile;
+                if (package.AssemblyReferences.Count == 0)
+                {
+                    excludeAssets |= LibraryIncludeFlags.Compile;
+                }
+            }
+
+            if (HasAnyRealFiles(lockFileTargetLibrary.RuntimeAssemblies))
+            {
+                existingAssets |= LibraryIncludeFlags.Runtime;
+                if (package.AssemblyReferences.Count == 0)
+                {
+                    excludeAssets |= LibraryIncludeFlags.Runtime;
+                }
+            }
+
+            // LockFileTargetLibrary doesn't include analyzer information, so we have to figure it out ourselves.
+            if (package.PackageInfo.HasAnalyzers)
+            {
+                existingAssets |= LibraryIncludeFlags.Analyzers;
+                if (package.AnalyzerItems.Count == 0)
+                {
+                    excludeAssets |= LibraryIncludeFlags.Analyzers;
+                }
             }
 
             if (package.IsDevelopmentDependency)
@@ -174,6 +201,22 @@ namespace PackagesConfigConverter
             {
                 includeAssets = LibraryIncludeFlags.None;
                 excludeAssets = LibraryIncludeFlags.None;
+                privateAssets = LibraryIncludeFlags.All;
+            }
+
+            // Simplify if the inclusions or exclusions exactly equal what's in the package.
+            if (includeAssets == existingAssets)
+            {
+                includeAssets = LibraryIncludeFlags.All;
+            }
+
+            if (excludeAssets == existingAssets)
+            {
+                excludeAssets = LibraryIncludeFlags.All;
+            }
+
+            if (privateAssets == existingAssets)
+            {
                 privateAssets = LibraryIncludeFlags.All;
             }
 
@@ -202,6 +245,23 @@ namespace PackagesConfigConverter
             }
 
             return itemElement;
+
+            static bool HasAnyRealFiles(IList<LockFileItem> items)
+            {
+                if (items.Count > 0)
+                {
+                    // Ignore the special "_._" file.
+                    foreach (LockFileItem item in items)
+                    {
+                        if (!Path.GetFileName(item.Path).Equals("_._"))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
         }
 
         private bool ConvertProject(string projectPath, string packagesConfigPath)
@@ -224,7 +284,9 @@ namespace PackagesConfigConverter
                 ProjectRootElement project = ProjectRootElement.Open(projectPath, _projectCollection, preserveFormatting: true);
 
                 NuGetFramework targetFramework = GetNuGetFramework(project);
-                RestoreTargetGraph restoreTargetGraph = GetRestoreTargetGraph(packages, projectPath, targetFramework);
+                RestoreResult restoreResult = Restore(packages, projectPath, targetFramework);
+                RestoreTargetGraph restoreTargetGraph = restoreResult.RestoreGraphs.FirstOrDefault();
+                LockFile lockFile = restoreResult.LockFile;
 
                 DetectMissingTransitiveDependencies(packages, projectPath, restoreTargetGraph);
 
@@ -265,7 +327,9 @@ namespace PackagesConfigConverter
 
                 foreach (PackageUsage package in packages)
                 {
-                    ProjectItemElement packageReferenceItemElement = AddPackageReference(packageReferenceItemGroupElement, package);
+                    LockFileTargetLibrary lockFileTargetLibrary = lockFile.GetTarget(targetFramework, runtimeIdentifier: null).GetTargetLibrary(package.PackageId);
+
+                    ProjectItemElement packageReferenceItemElement = AddPackageReference(packageReferenceItemGroupElement, package, lockFileTargetLibrary);
 
                     Log.LogDebug($"      {packageReferenceItemElement.ToXmlString()}");
                 }
@@ -381,7 +445,7 @@ namespace PackagesConfigConverter
             return _converterSettings.DefaultTargetFramework;
         }
 
-        private RestoreTargetGraph GetRestoreTargetGraph(List<PackageUsage> packages, string projectPath, NuGetFramework framework)
+        private RestoreResult Restore(List<PackageUsage> packages, string projectPath, NuGetFramework framework)
         {
             List<TargetFrameworkInformation> targetFrameworks = new List<TargetFrameworkInformation>
             {
@@ -424,10 +488,8 @@ namespace PackagesConfigConverter
             IReadOnlyList<RestoreSummaryRequest> requests = requestProvider.CreateRequests(_restoreArgs).Result;
 
             // Restore the package without generating extra files
-            RestoreResultPair restoreResult = RestoreRunner.RunWithoutCommit(requests, _restoreArgs).Result.FirstOrDefault();
-
-            RestoreTargetGraph restoreTargetGraph = restoreResult?.Result.RestoreGraphs.FirstOrDefault();
-            return restoreTargetGraph;
+            RestoreResultPair restoreResult = RestoreRunner.RunWithoutCommit(requests, _restoreArgs).Result.First();
+            return restoreResult.Result;
         }
 
         private bool IsPathRootedInRepositoryPath(string path)
