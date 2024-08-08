@@ -40,6 +40,8 @@ namespace PackagesConfigConverter
         private readonly ISettings _nugetSettings;
         private readonly ProjectCollection _projectCollection = new ();
         private readonly string _repositoryPath;
+        private readonly RestoreCommandProvidersCache _restoreCommandProvidersCache;
+        private readonly RestoreArgs _restoreArgs;
 
         public ProjectConverter(ProjectConverterSettings converterSettings)
             : this(converterSettings, GetNuGetSettings(converterSettings))
@@ -60,6 +62,19 @@ namespace PackagesConfigConverter
             PackagePathResolver = new PackagePathResolver(_repositoryPath);
 
             VersionFolderPathResolver = new VersionFolderPathResolver(_globalPackagesFolder);
+
+            _restoreCommandProvidersCache = new RestoreCommandProvidersCache();
+            _restoreArgs = new RestoreArgs
+            {
+                AllowNoOp = true,
+                CacheContext = new SourceCacheContext()
+                {
+                    IgnoreFailedSources = true,
+                },
+                CachingSourceProvider = new CachingSourceProvider(new PackageSourceProvider(_nugetSettings)),
+                GlobalPackagesFolder = _globalPackagesFolder,
+                Log = NullLogger.Instance,
+            };
         }
 
         public ILogger Log => _converterSettings.Log;
@@ -113,7 +128,8 @@ namespace PackagesConfigConverter
 
         public void Dispose()
         {
-            _projectCollection?.Dispose();
+            _projectCollection.Dispose();
+            _restoreArgs.CacheContext.Dispose();
         }
 
         private static ISettings GetNuGetSettings(ProjectConverterSettings converterSettings)
@@ -202,7 +218,14 @@ namespace PackagesConfigConverter
 
                 List<PackageReference> packages = packagesConfigReader.GetPackages(allowDuplicatePackageIds: true).Select(i => new PackageReference(i.PackageIdentity, i.TargetFramework, i.IsUserInstalled, i.IsDevelopmentDependency, i.RequireReinstallation, i.AllowedVersions, PackagePathResolver, VersionFolderPathResolver)).ToList();
 
-                DetectMissingTransitiveDependencies(packages, projectPath);
+                List<NuGetFramework> targetFrameworks = new List<NuGetFramework>
+                {
+                    FrameworkConstants.CommonFrameworks.Net45,
+                };
+
+                RestoreTargetGraph restoreTargetGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks);
+
+                DetectMissingTransitiveDependencies(packages, projectPath, restoreTargetGraph);
 
                 ProjectRootElement project = ProjectRootElement.Open(projectPath, _projectCollection, preserveFormatting: true);
 
@@ -236,18 +259,7 @@ namespace PackagesConfigConverter
 
                 if (_converterSettings.TrimPackages)
                 {
-                    List<NuGetFramework> targetFrameworks = new List<NuGetFramework>
-                    {
-                        FrameworkConstants.CommonFrameworks.Net45,
-                    };
-
-                    using SourceCacheContext sourceCacheContext = new SourceCacheContext
-                    {
-                        IgnoreFailedSources = true,
-                    };
-
-                    RestoreTargetGraph packageRestoreGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks, sourceCacheContext);
-                    TrimPackages(packages, projectPath, packageRestoreGraph.Flattened);
+                    TrimPackages(packages, projectPath, restoreTargetGraph.Flattened);
                 }
 
                 Log.LogDebug("    Converted package references:");
@@ -281,37 +293,22 @@ namespace PackagesConfigConverter
             return true;
         }
 
-        private void DetectMissingTransitiveDependencies(List<PackageReference> packages, string projectPath)
+        private void DetectMissingTransitiveDependencies(List<PackageReference> packages, string projectPath, RestoreTargetGraph restoreTargetGraph)
         {
-            List<NuGetFramework> targetFrameworks = new List<NuGetFramework>
+            IEnumerable<GraphItem<RemoteResolveResult>> flatPackageDependencies = restoreTargetGraph.Flattened.Where(i => i.Key.Type == LibraryType.Package);
+            foreach (GraphItem<RemoteResolveResult> packageDependency in flatPackageDependencies)
             {
-                FrameworkConstants.CommonFrameworks.Net45,
-            };
+                (LibraryIdentity library, _) = (packageDependency.Key, packageDependency.Data);
+                PackageReference packageReference = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
 
-            using SourceCacheContext sourceCacheContext = new SourceCacheContext
-            {
-                IgnoreFailedSources = true,
-            };
-
-            RestoreTargetGraph restoreTargetGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks, sourceCacheContext);
-
-            if (restoreTargetGraph != null)
-            {
-                IEnumerable<GraphItem<RemoteResolveResult>> flatPackageDependencies = restoreTargetGraph.Flattened.Where(i => i.Key.Type == LibraryType.Package);
-                foreach (GraphItem<RemoteResolveResult> packageDependency in flatPackageDependencies)
+                if (packageReference == null)
                 {
-                    (LibraryIdentity library, _) = (packageDependency.Key, packageDependency.Data);
-                    PackageReference packageReference = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
+                    Log.LogWarning($"{projectPath}: The transitive package dependency \"{library.Name} {library.Version}\" was not in the packages.config.  After converting to PackageReference, new dependencies will be pulled in transitively which could lead to restore or build errors");
 
-                    if (packageReference == null)
+                    packages.Add(new PackageReference(new PackageIdentity(library.Name, library.Version), NuGetFramework.AnyFramework, true, false, true, new VersionRange(library.Version), PackagePathResolver, VersionFolderPathResolver)
                     {
-                        Log.LogWarning($"{projectPath}: The transitive package dependency \"{library.Name} {library.Version}\" was not in the packages.config.  After converting to PackageReference, new dependencies will be pulled in transitively which could lead to restore or build errors");
-
-                        packages.Add(new PackageReference(new PackageIdentity(library.Name, library.Version), NuGetFramework.AnyFramework, true, false, true, new VersionRange(library.Version), PackagePathResolver, VersionFolderPathResolver)
-                        {
-                            IsMissingTransitiveDependency = true,
-                        });
-                    }
+                        IsMissingTransitiveDependency = true,
+                    });
                 }
             }
         }
@@ -366,7 +363,7 @@ namespace PackagesConfigConverter
             return match;
         }
 
-        private RestoreTargetGraph GetRestoreTargetGraph(List<PackageReference> packages, string projectPath, List<NuGetFramework> targetFrameworks, SourceCacheContext sourceCacheContext)
+        private RestoreTargetGraph GetRestoreTargetGraph(List<PackageReference> packages, string projectPath, List<NuGetFramework> targetFrameworks)
         {
             // The package spec details what packages to restore
             PackageSpec packageSpec = new PackageSpec(targetFrameworks.Select(i => new TargetFrameworkInformation
@@ -401,21 +398,13 @@ namespace PackagesConfigConverter
 
             dependencyGraphSpec.AddRestore(packageSpec.RestoreMetadata.ProjectUniqueName);
 
-            IPreLoadedRestoreRequestProvider requestProvider = new DependencyGraphSpecRequestProvider(new RestoreCommandProvidersCache(), dependencyGraphSpec);
-
-            RestoreArgs restoreArgs = new RestoreArgs
-            {
-                AllowNoOp = true,
-                CacheContext = sourceCacheContext,
-                CachingSourceProvider = new CachingSourceProvider(new PackageSourceProvider(_nugetSettings)),
-                Log = NullLogger.Instance,
-            };
+            IPreLoadedRestoreRequestProvider requestProvider = new DependencyGraphSpecRequestProvider(_restoreCommandProvidersCache, dependencyGraphSpec, _nugetSettings);
 
             // Create requests from the arguments
-            IReadOnlyList<RestoreSummaryRequest> requests = requestProvider.CreateRequests(restoreArgs).Result;
+            IReadOnlyList<RestoreSummaryRequest> requests = requestProvider.CreateRequests(_restoreArgs).Result;
 
             // Restore the package without generating extra files
-            RestoreResultPair restoreResult = RestoreRunner.RunWithoutCommit(requests, restoreArgs).Result.FirstOrDefault();
+            RestoreResultPair restoreResult = RestoreRunner.RunWithoutCommit(requests, _restoreArgs).Result.FirstOrDefault();
 
             RestoreTargetGraph restoreTargetGraph = restoreResult?.Result.RestoreGraphs.FirstOrDefault();
             return restoreTargetGraph;
