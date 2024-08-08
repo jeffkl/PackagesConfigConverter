@@ -6,10 +6,10 @@ namespace PackagesConfigConverter
 {
     internal static class RegularExpressions
     {
-        public static AnalyzerRegularExpressions Analyzers { get; } = new ();
+        public static AnalyzerRegularExpressions Analyzers { get; } = new();
 
-        public static AssemblyReferenceRegularExpressions AssemblyReferences { get; } = new ();
+        public static AssemblyReferenceRegularExpressions AssemblyReferences { get; } = new();
 
-        public static ImportRegularExpressions Imports { get; } = new ();
+        public static ImportRegularExpressions Imports { get; } = new();
     }
 }

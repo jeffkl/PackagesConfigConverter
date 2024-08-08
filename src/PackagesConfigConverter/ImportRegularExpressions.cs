@@ -2,8 +2,8 @@
 //
 // Licensed under the MIT license.
 
-using NuGet.Packaging.Core;
 using System.Text.RegularExpressions;
+using NuGet.Packaging.Core;
 
 namespace PackagesConfigConverter
 {

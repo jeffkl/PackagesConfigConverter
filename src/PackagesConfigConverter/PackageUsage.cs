@@ -2,18 +2,17 @@
 //
 // Licensed under the MIT license.
 
-using CommandLine;
-using Microsoft.Build.Construction;
-using NuGet.Packaging.Core;
-using NuGet.Versioning;
 using System.Collections.Generic;
 using System.Linq;
+using CommandLine;
+using Microsoft.Build.Construction;
+using NuGet.Versioning;
 
 namespace PackagesConfigConverter
 {
     internal sealed class PackageUsage
     {
-        public PackageUsage(PackageIdentity identity, PackageInfo packageInfo, bool isDevelopmentDependency)
+        public PackageUsage(PackageInfo packageInfo, bool isDevelopmentDependency)
         {
             PackageInfo = packageInfo;
             IsDevelopmentDependency = isDevelopmentDependency;
@@ -25,11 +24,11 @@ namespace PackagesConfigConverter
 
         public IEnumerable<ProjectElement> AllElements => AnalyzerItems.Cast<ProjectElement>().Concat(AssemblyReferences).Concat(Imports);
 
-        public List<ProjectItemElement> AnalyzerItems { get; } = new ();
+        public List<ProjectItemElement> AnalyzerItems { get; } = new();
 
-        public List<ProjectItemElement> AssemblyReferences { get; } = new ();
+        public List<ProjectItemElement> AssemblyReferences { get; } = new();
 
-        public List<ProjectImportElement> Imports { get; } = new ();
+        public List<ProjectImportElement> Imports { get; } = new();
 
         public bool GeneratePathProperty { get; set; }
 

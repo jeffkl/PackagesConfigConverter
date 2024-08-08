@@ -3,8 +3,7 @@
   "settings": {
     "orderingRules": {
       "usingDirectivesPlacement": "outsideNamespace",
-      "systemUsingDirectivesFirst": false,
-      "blankLinesBetweenUsingGroups": "require"
+      "systemUsingDirectivesFirst": true
     },
     "documentationRules": {
       "companyName": "Jeff Kluge",
