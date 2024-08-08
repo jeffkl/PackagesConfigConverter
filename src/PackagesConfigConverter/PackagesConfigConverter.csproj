@@ -5,9 +5,14 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CommandLineParser" />
-    <PackageReference Include="log4net" />
     <PackageReference Include="Microsoft.Build" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
     <PackageReference Include="NuGet.Commands" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Extensions.Logging" />
+    <PackageReference Include="Serilog.Sinks.Async" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="PackagesConfigConverter.UnitTests" />

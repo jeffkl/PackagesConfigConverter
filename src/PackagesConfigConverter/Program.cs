@@ -3,38 +3,26 @@
 // Licensed under the MIT license.
 
 using CommandLine;
-using log4net;
-using log4net.Appender;
-using log4net.Core;
+using Microsoft.Extensions.Logging;
+using Serilog;
+using Serilog.Events;
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Threading;
+
+using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace PackagesConfigConverter
 {
     internal class Program
     {
-        private static readonly CancellationTokenSource CancellationTokenSource = new ();
-
-        private static readonly ILog Log = LogManager.GetLogger(typeof(Program));
-
         public static int Main(string[] args)
         {
             int ret = 0;
 
             try
             {
-                Console.CancelKeyPress += (_, e) =>
-                {
-                    e.Cancel = false;
-
-                    Log.Info("Cancelling...");
-
-                    CancellationTokenSource.Cancel();
-                };
-
                 new Parser(parserSettings =>
                     {
                         parserSettings.CaseInsensitiveEnumValues = true;
@@ -71,19 +59,22 @@ namespace PackagesConfigConverter
 
             ConfigureLogger(arguments);
 
+            using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddSerilog());
+            ILogger logger = factory.CreateLogger("PackagesConfigConverter");
+
             ProjectConverterSettings settings = new ProjectConverterSettings
             {
                 RepositoryRoot = arguments.RepoRoot,
                 Include = arguments.Include.ToRegex(),
                 Exclude = arguments.Exclude.ToRegex(),
-                Log = Log,
+                Log = logger,
                 TrimPackages = arguments.Trim,
             };
 
-            Log.Info($" RepositoryRoot: '{settings.RepositoryRoot}'");
-            Log.Info($"  Include regex: '{settings.Include}'");
-            Log.Info($"  Exclude regex: '{settings.Exclude}'");
-            Log.Info(string.Empty);
+            logger.LogInformation($" RepositoryRoot: '{settings.RepositoryRoot}'");
+            logger.LogInformation($"  Include regex: '{settings.Include}'");
+            logger.LogInformation($"  Exclude regex: '{settings.Exclude}'");
+            logger.LogInformation(string.Empty);
 
             if (!arguments.Yes)
             {
@@ -94,39 +85,44 @@ namespace PackagesConfigConverter
                 }
             }
 
+            var cancellationTokenSource = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = false;
+
+                logger.LogInformation("Cancelling...");
+
+                cancellationTokenSource.Cancel();
+            };
+
             using IProjectConverter projectConverter = ProjectConverterFactory.Create(settings);
 
-            projectConverter.ConvertRepository(CancellationTokenSource.Token);
+            projectConverter.ConvertRepository(cancellationTokenSource.Token);
         }
 
         private static void ConfigureLogger(ProgramArguments arguments)
         {
-            foreach (AppenderSkeleton appender in Log.Logger.Repository.GetAppenders().OfType<AppenderSkeleton>())
+            var loggingConfiguration = new LoggerConfiguration();
+
+            loggingConfiguration.MinimumLevel.Is(arguments.Verbose ? LogEventLevel.Verbose : LogEventLevel.Debug);
+
+            // Always write to the console.
+            LogEventLevel consoleLogLevel = arguments.Verbose ? LogEventLevel.Verbose : LogEventLevel.Information;
+            loggingConfiguration.WriteTo.Console(consoleLogLevel);
+
+            if (arguments.LogFile != null)
             {
-                switch (appender)
+                string logFile = Path.Combine(Environment.CurrentDirectory, Path.GetFileName(arguments.LogFile));
+                if (File.Exists(logFile))
                 {
-                    case FileAppender fileAppender:
-                        if (arguments.LogFile != null)
-                        {
-                            fileAppender.File = Path.Combine(Environment.CurrentDirectory, Path.GetFileName(arguments.LogFile));
-                        }
-                        else
-                        {
-                            fileAppender.Threshold = Level.Off;
-                        }
-
-                        fileAppender.ActivateOptions();
-
-                        break;
+                    File.Delete(logFile);
                 }
 
-                if (arguments.Verbose)
-                {
-                    appender.Threshold = Level.Verbose;
-
-                    appender.ActivateOptions();
-                }
+                LogEventLevel fileLogLevel = arguments.Verbose ? LogEventLevel.Verbose : LogEventLevel.Debug;
+                loggingConfiguration.WriteTo.Async(a => a.File(logFile, fileLogLevel));
             }
+
+            Log.Logger = loggingConfiguration.CreateLogger();
         }
     }
 }
