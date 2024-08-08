@@ -2,15 +2,14 @@
 //
 // Licensed under the MIT license.
 
-using CommandLine;
-using Microsoft.Extensions.Logging;
-using Serilog;
-using Serilog.Events;
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
-
+using CommandLine;
+using Microsoft.Extensions.Logging;
+using Serilog;
+using Serilog.Events;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace PackagesConfigConverter
@@ -79,7 +78,7 @@ namespace PackagesConfigConverter
             if (!arguments.Yes)
             {
                 Console.Write("Ensure there are no files checked out in git before continuing!  Continue? (Y/N) ");
-                if (!Console.In.ReadLine() !.StartsWith("Y", StringComparison.OrdinalIgnoreCase))
+                if (!Console.In.ReadLine()!.StartsWith("Y", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new OperationCanceledException();
                 }

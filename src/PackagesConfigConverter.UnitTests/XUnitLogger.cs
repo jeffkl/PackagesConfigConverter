@@ -2,8 +2,8 @@
 //
 // Licensed under the MIT license.
 
-using Microsoft.Extensions.Logging;
 using System;
+using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
 
 namespace PackagesConfigConverter.UnitTests

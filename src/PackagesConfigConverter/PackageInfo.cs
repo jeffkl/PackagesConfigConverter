@@ -2,12 +2,12 @@
 //
 // Licensed under the MIT license.
 
-using NuGet.Packaging;
-using NuGet.Packaging.Core;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using NuGet.Packaging;
+using NuGet.Packaging.Core;
 
 namespace PackagesConfigConverter
 {

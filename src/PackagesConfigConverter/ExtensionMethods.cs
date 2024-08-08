@@ -2,7 +2,6 @@
 //
 // Licensed under the MIT license.
 
-using Microsoft.Build.Construction;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,6 +9,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Xml;
+using Microsoft.Build.Construction;
 
 namespace PackagesConfigConverter
 {

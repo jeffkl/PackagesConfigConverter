@@ -1,12 +1,35 @@
 <Project>
   <PropertyGroup>
-    <DefaultItemExcludes>*log</DefaultItemExcludes>
-    <Deterministic>true</Deterministic>
-    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+    <!-- Use the latest version of C# available -->
     <LangVersion>Latest</LangVersion>
+
+    <!-- Don't allow warnings -->
     <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
-    <NoWarn>$(NoWarn);SA0001</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- Enabled the built-in analyzers -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisMode>All</AnalysisMode>
+
+    <!-- Use Directory.Packages.props to manage versions -->
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+
+    <DefaultItemExcludes>*log</DefaultItemExcludes>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+
+    <!-- Required for IDE0005 -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!--<NoWarn>$(NoWarn);SA0001</NoWarn>-->
     <RestoreUseStaticGraphEvaluation>true</RestoreUseStaticGraphEvaluation>
     <UseArtifactsOutput>true</UseArtifactsOutput>
+    <Deterministic>true</Deterministic>
   </PropertyGroup>
+
+  <!-- StyleCop-->
+  <ItemGroup>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false" />
+  </ItemGroup>
 </Project>

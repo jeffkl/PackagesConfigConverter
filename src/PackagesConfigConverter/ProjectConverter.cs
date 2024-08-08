@@ -2,6 +2,13 @@
 //
 // Licensed under the MIT license.
 
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Xml.Linq;
 using Microsoft.Build.Construction;
 using Microsoft.Build.Evaluation;
 using Microsoft.Extensions.Logging;
@@ -17,14 +24,6 @@ using NuGet.ProjectModel;
 using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Xml.Linq;
-
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 // ReSharper disable CollectionNeverUpdated.Local
@@ -32,13 +31,13 @@ namespace PackagesConfigConverter
 {
     internal sealed class ProjectConverter : IProjectConverter
     {
-        private static readonly HashSet<string> ItemsToRemove = new (StringComparer.OrdinalIgnoreCase) { "packages.config" };
-        private static readonly HashSet<string> PropertiesToRemove = new (StringComparer.OrdinalIgnoreCase) { "NuGetPackageImportStamp" };
-        private static readonly HashSet<string> TargetsToRemove = new (StringComparer.OrdinalIgnoreCase) { "EnsureNuGetPackageBuildImports" };
+        private static readonly HashSet<string> ItemsToRemove = new(StringComparer.OrdinalIgnoreCase) { "packages.config" };
+        private static readonly HashSet<string> PropertiesToRemove = new(StringComparer.OrdinalIgnoreCase) { "NuGetPackageImportStamp" };
+        private static readonly HashSet<string> TargetsToRemove = new(StringComparer.OrdinalIgnoreCase) { "EnsureNuGetPackageBuildImports" };
         private readonly ProjectConverterSettings _converterSettings;
         private readonly string _globalPackagesFolder;
         private readonly ISettings _nugetSettings;
-        private readonly ProjectCollection _projectCollection = new ();
+        private readonly ProjectCollection _projectCollection = new();
         private readonly string _repositoryPath;
         private readonly PackageInfoFactory _packageInfoFactory;
         private readonly RestoreCommandProvidersCache _restoreCommandProvidersCache;
@@ -218,7 +217,7 @@ namespace PackagesConfigConverter
                     .Select(i =>
                     {
                         PackageInfo packageInfo = _packageInfoFactory.GetPackageInfo(i.PackageIdentity);
-                        return new PackageUsage(i.PackageIdentity, packageInfo, i.IsDevelopmentDependency);
+                        return new PackageUsage(packageInfo, i.IsDevelopmentDependency);
                     })
                     .ToList();
 
@@ -311,7 +310,7 @@ namespace PackagesConfigConverter
 
                     PackageIdentity packageIdentity = new PackageIdentity(library.Name, library.Version);
                     PackageInfo packageInfo = _packageInfoFactory.GetPackageInfo(packageIdentity);
-                    PackageUsage missingTransitiveDependency = new PackageUsage(packageIdentity, packageInfo, isDevelopmentDependency: false);
+                    PackageUsage missingTransitiveDependency = new PackageUsage(packageInfo, isDevelopmentDependency: false);
                     missingTransitiveDependency.IsMissingTransitiveDependency = true;
                     packages.Add(missingTransitiveDependency);
                 }

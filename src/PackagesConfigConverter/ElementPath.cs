@@ -2,8 +2,8 @@
 //
 // Licensed under the MIT license.
 
-using Microsoft.Build.Construction;
 using System;
+using Microsoft.Build.Construction;
 
 namespace PackagesConfigConverter
 {

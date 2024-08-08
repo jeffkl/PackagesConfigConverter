@@ -2,9 +2,9 @@
 //
 // Licensed under the MIT license.
 
+using System.Collections.Concurrent;
 using NuGet.Packaging;
 using NuGet.Packaging.Core;
-using System.Collections.Concurrent;
 
 namespace PackagesConfigConverter
 {
@@ -12,7 +12,7 @@ namespace PackagesConfigConverter
     {
         private readonly PackagePathResolver _packagePathResolver;
         private readonly VersionFolderPathResolver _versionFolderPathResolver;
-        private readonly ConcurrentDictionary<PackageIdentity, PackageInfo> _packages = new ();
+        private readonly ConcurrentDictionary<PackageIdentity, PackageInfo> _packages = new();
 
         public PackageInfoFactory(PackagePathResolver packagePathResolver, VersionFolderPathResolver versionFolderPathResolver)
         {

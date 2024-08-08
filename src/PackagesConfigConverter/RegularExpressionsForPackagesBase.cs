@@ -2,11 +2,11 @@
 //
 // Licensed under the MIT license.
 
-using NuGet.Packaging.Core;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using NuGet.Packaging.Core;
 
 namespace PackagesConfigConverter
 {
@@ -14,7 +14,7 @@ namespace PackagesConfigConverter
     {
         protected const string SemVerPattern = @"(?<version>\d*\.\d*\.\d*\.?\d*-?[\w\d\-]*)";
 
-        private readonly Dictionary<PackageIdentity, Regex> _regularExpressions = new ();
+        private readonly Dictionary<PackageIdentity, Regex> _regularExpressions = new();
 
         public int Count => _regularExpressions.Count;
 
