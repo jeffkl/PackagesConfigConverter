@@ -4,6 +4,7 @@
 
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using NuGet.Frameworks;
 
 namespace PackagesConfigConverter
 {
@@ -20,5 +21,7 @@ namespace PackagesConfigConverter
         public string RepositoryRoot { get; set; }
 
         public bool TrimPackages { get; set; }
+
+        public NuGetFramework DefaultTargetFramework { get; set; } = FrameworkConstants.CommonFrameworks.Net45;
     }
 }

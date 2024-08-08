@@ -8,6 +8,7 @@ using System.IO;
 using System.Threading;
 using CommandLine;
 using Microsoft.Extensions.Logging;
+using NuGet.Frameworks;
 using Serilog;
 using Serilog.Events;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
@@ -69,6 +70,11 @@ namespace PackagesConfigConverter
                 Log = logger,
                 TrimPackages = arguments.Trim,
             };
+
+            if (arguments.DefaultTargetFramework != null)
+            {
+                settings.DefaultTargetFramework = NuGetFramework.Parse(arguments.DefaultTargetFramework);
+            }
 
             logger.LogInformation($" RepositoryRoot: '{settings.RepositoryRoot}'");
             logger.LogInformation($"  Include regex: '{settings.Include}'");

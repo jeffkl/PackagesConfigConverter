@@ -31,5 +31,8 @@ namespace PackagesConfigConverter
 
         [Option('y', HelpText = "Suppresses prompting to confirm you want to convert the repository")]
         public bool Yes { get; set; }
+
+        [Option('f', HelpText = "The default target framework to assume if not defined in the project")]
+        public string DefaultTargetFramework { get; set; }
     }
 }
