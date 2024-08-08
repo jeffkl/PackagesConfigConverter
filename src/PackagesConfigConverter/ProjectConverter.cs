@@ -221,16 +221,12 @@ namespace PackagesConfigConverter
                     })
                     .ToList();
 
-                List<NuGetFramework> targetFrameworks = new List<NuGetFramework>
-                {
-                    FrameworkConstants.CommonFrameworks.Net45,
-                };
+                ProjectRootElement project = ProjectRootElement.Open(projectPath, _projectCollection, preserveFormatting: true);
 
-                RestoreTargetGraph restoreTargetGraph = GetRestoreTargetGraph(packages, projectPath, targetFrameworks);
+                NuGetFramework targetFramework = GetNuGetFramework(project);
+                RestoreTargetGraph restoreTargetGraph = GetRestoreTargetGraph(packages, projectPath, targetFramework);
 
                 DetectMissingTransitiveDependencies(packages, projectPath, restoreTargetGraph);
-
-                ProjectRootElement project = ProjectRootElement.Open(projectPath, _projectCollection, preserveFormatting: true);
 
                 ProjectItemGroupElement packageReferenceItemGroupElement = null;
 
@@ -367,13 +363,33 @@ namespace PackagesConfigConverter
             return match;
         }
 
-        private RestoreTargetGraph GetRestoreTargetGraph(List<PackageUsage> packages, string projectPath, List<NuGetFramework> targetFrameworks)
+        private NuGetFramework GetNuGetFramework(ProjectRootElement project)
         {
-            // The package spec details what packages to restore
-            PackageSpec packageSpec = new PackageSpec(targetFrameworks.Select(i => new TargetFrameworkInformation
+            string targetFramework = project.PropertyGroups.SelectMany(p => p.Properties).LastOrDefault(p => p.Name.Equals("TargetFramework", StringComparison.OrdinalIgnoreCase))?.Value;
+            if (targetFramework != null)
             {
-                FrameworkName = i,
-            }).ToList())
+                return NuGetFramework.Parse(targetFramework);
+            }
+
+            string targetFrameworkVersion = project.PropertyGroups.SelectMany(p => p.Properties).LastOrDefault(p => p.Name.Equals("TargetFrameworkVersion", StringComparison.OrdinalIgnoreCase))?.Value;
+            if (targetFrameworkVersion != null)
+            {
+                return NuGetFramework.Parse($".NETFramework,Version={targetFrameworkVersion}");
+            }
+
+            Log.LogDebug($"    Could not find target framework. Using default {_converterSettings.DefaultTargetFramework}");
+            return _converterSettings.DefaultTargetFramework;
+        }
+
+        private RestoreTargetGraph GetRestoreTargetGraph(List<PackageUsage> packages, string projectPath, NuGetFramework framework)
+        {
+            List<TargetFrameworkInformation> targetFrameworks = new List<TargetFrameworkInformation>
+            {
+                new TargetFrameworkInformation { FrameworkName = framework },
+            };
+
+            // The package spec details what packages to restore
+            PackageSpec packageSpec = new PackageSpec(targetFrameworks)
             {
                 Dependencies = packages.Select(i => new LibraryDependency
                 {
@@ -386,7 +402,7 @@ namespace PackagesConfigConverter
                     ProjectStyle = ProjectStyle.PackageReference,
                     ProjectUniqueName = projectPath,
                     OutputPath = Path.GetTempPath(),
-                    OriginalTargetFrameworks = targetFrameworks.Select(i => i.ToString()).ToList(),
+                    OriginalTargetFrameworks = new List<string>() { framework.ToString() },
                     ConfigFilePaths = _nugetSettings.GetConfigFilePaths(),
                     PackagesPath = SettingsUtility.GetGlobalPackagesFolder(_nugetSettings),
                     Sources = SettingsUtility.GetEnabledSources(_nugetSettings).ToList(),
