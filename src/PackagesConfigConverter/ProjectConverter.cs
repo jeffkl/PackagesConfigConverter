@@ -2,9 +2,9 @@
 //
 // Licensed under the MIT license.
 
-using log4net;
 using Microsoft.Build.Construction;
 using Microsoft.Build.Evaluation;
+using Microsoft.Extensions.Logging;
 using NuGet.Commands;
 using NuGet.Common;
 using NuGet.Configuration;
@@ -24,6 +24,8 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Xml.Linq;
+
+using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 // ReSharper disable CollectionNeverUpdated.Local
 namespace PackagesConfigConverter
@@ -60,7 +62,7 @@ namespace PackagesConfigConverter
             VersionFolderPathResolver = new VersionFolderPathResolver(_globalPackagesFolder);
         }
 
-        public ILog Log => _converterSettings.Log;
+        public ILogger Log => _converterSettings.Log;
 
         public PackagePathResolver PackagePathResolver { get; internal set; }
 
@@ -70,22 +72,22 @@ namespace PackagesConfigConverter
         {
             bool success = true;
 
-            Log.Info($"Converting repository \"{_converterSettings.RepositoryRoot}\"...");
+            Log.LogInformation($"Converting repository \"{_converterSettings.RepositoryRoot}\"...");
 
-            Log.Info($"  NuGet configuration file : \"{_converterSettings.NuGetConfigPath}\"");
+            Log.LogInformation($"  NuGet configuration file : \"{_converterSettings.NuGetConfigPath}\"");
 
             foreach (string file in Directory.EnumerateFiles(_converterSettings.RepositoryRoot, "*.csproj", SearchOption.AllDirectories)
                 .TakeWhile(_ => !cancellationToken.IsCancellationRequested))
             {
                 if (_converterSettings.Exclude != null && _converterSettings.Exclude.IsMatch(file))
                 {
-                    Log.Debug($"  Excluding file \"{file}\"");
+                    Log.LogDebug($"  Excluding file \"{file}\"");
                     continue;
                 }
 
                 if (_converterSettings.Include != null && !_converterSettings.Include.IsMatch(file))
                 {
-                    Log.Debug($"  Not including file \"{file}\"");
+                    Log.LogDebug($"  Not including file \"{file}\"");
                     continue;
                 }
 
@@ -93,7 +95,7 @@ namespace PackagesConfigConverter
 
                 if (!File.Exists(packagesConfigPath))
                 {
-                    Log.Debug($"  Skipping project \"{file}\" because it does not have a packages.config");
+                    Log.LogDebug($"  Skipping project \"{file}\" because it does not have a packages.config");
                     continue;
                 }
 
@@ -105,7 +107,7 @@ namespace PackagesConfigConverter
 
             if (success)
             {
-                Log.Info("Successfully converted repository");
+                Log.LogInformation("Successfully converted repository");
             }
         }
 
@@ -194,7 +196,7 @@ namespace PackagesConfigConverter
         {
             try
             {
-                Log.Info($"  Converting project \"{projectPath}\"");
+                Log.LogInformation($"  Converting project \"{projectPath}\"");
 
                 PackagesConfigReader packagesConfigReader = new PackagesConfigReader(XDocument.Load(packagesConfigPath));
 
@@ -219,16 +221,16 @@ namespace PackagesConfigConverter
 
                 packageReferenceItemGroupElement ??= project.AddItemGroup();
 
-                Log.Info("    Current package references:");
+                Log.LogDebug("    Current package references:");
 
                 foreach (PackageReference package in packages.Where(i => !i.IsMissingTransitiveDependency))
                 {
-                    Log.Info($"      {package.PackageIdentity}");
+                    Log.LogDebug($"      {package.PackageIdentity}");
                 }
 
                 foreach (ProjectElement element in packages.Where(i => !i.IsMissingTransitiveDependency).SelectMany(i => i.AllElements))
                 {
-                    Log.Debug($"    {element.Location}: Removing element {element.ToXmlString()}");
+                    Log.LogDebug($"    {element.Location}: Removing element {element.ToXmlString()}");
                     element.Remove();
                 }
 
@@ -248,30 +250,30 @@ namespace PackagesConfigConverter
                     TrimPackages(packages, projectPath, packageRestoreGraph.Flattened);
                 }
 
-                Log.Info("    Converted package references:");
+                Log.LogDebug("    Converted package references:");
 
                 foreach (PackageReference package in packages)
                 {
                     ProjectItemElement packageReferenceItemElement = AddPackageReference(packageReferenceItemGroupElement, package);
 
-                    Log.Info($"      {packageReferenceItemElement.ToXmlString()}");
+                    Log.LogDebug($"      {packageReferenceItemElement.ToXmlString()}");
                 }
 
                 if (project.HasUnsavedChanges)
                 {
-                    Log.Debug($"    Saving project \"{project.FullPath}\"");
+                    Log.LogDebug($"    Saving project \"{project.FullPath}\"");
                     project.Save();
                 }
 
-                Log.Debug($"    Deleting file \"{packagesConfigPath}\"");
+                Log.LogDebug($"    Deleting file \"{packagesConfigPath}\"");
 
                 File.Delete(packagesConfigPath);
 
-                Log.Info($"  Successfully converted \"{project.FullPath}\"");
+                Log.LogInformation($"  Successfully converted \"{project.FullPath}\"");
             }
             catch (Exception e)
             {
-                Log.Error($"Failed to convert '{projectPath}' : {e}");
+                Log.LogError(e, $"Failed to convert '{projectPath}'");
 
                 return false;
             }
@@ -303,7 +305,7 @@ namespace PackagesConfigConverter
 
                     if (packageReference == null)
                     {
-                        Log.Warn($"{projectPath}: The transitive package dependency \"{library.Name} {library.Version}\" was not in the packages.config.  After converting to PackageReference, new dependencies will be pulled in transitively which could lead to restore or build errors");
+                        Log.LogWarning($"{projectPath}: The transitive package dependency \"{library.Name} {library.Version}\" was not in the packages.config.  After converting to PackageReference, new dependencies will be pulled in transitively which could lead to restore or build errors");
 
                         packages.Add(new PackageReference(new PackageIdentity(library.Name, library.Version), NuGetFramework.AnyFramework, true, false, true, new VersionRange(library.Version), PackagePathResolver, VersionFolderPathResolver)
                         {
@@ -431,7 +433,7 @@ namespace PackagesConfigConverter
                 case ProjectPropertyElement propertyElement:
                     if (PropertiesToRemove.Contains(propertyElement.Name))
                     {
-                        Log.Debug($"    {element.Location}: Removing property \"{element.ElementName}\"");
+                        Log.LogDebug($"    {element.Location}: Removing property \"{element.ElementName}\"");
                         propertyElement.Remove();
                         return;
                     }
@@ -441,7 +443,7 @@ namespace PackagesConfigConverter
                 case ProjectItemElement itemElement:
                     if (ItemsToRemove.Contains(itemElement.ItemType) || ItemsToRemove.Contains(itemElement.Include))
                     {
-                        Log.Debug($"    {element.Location}: Removing item \"{itemElement.ItemType}\"");
+                        Log.LogDebug($"    {element.Location}: Removing item \"{itemElement.ItemType}\"");
                         itemElement.Remove();
                         return;
                     }
@@ -451,7 +453,7 @@ namespace PackagesConfigConverter
                 case ProjectTargetElement targetElement:
                     if (TargetsToRemove.Contains(targetElement.Name))
                     {
-                        Log.Debug($"    {element.Location}: Removing target \"{targetElement.Name}\"");
+                        Log.LogDebug($"    {element.Location}: Removing target \"{targetElement.Name}\"");
                         targetElement.Remove();
                         return;
                     }
@@ -473,7 +475,7 @@ namespace PackagesConfigConverter
 
                     if (!version.Equals(package.PackageIdentity.Version))
                     {
-                        Log.Warn($"  {element.Location}: The package version \"{version}\" specified in the \"{element.ElementName}\" element does not match the package version \"{package.PackageVersion}\".  After conversion, the project will reference ONLY version \"{package.PackageVersion}\"");
+                        Log.LogWarning($"  {element.Location}: The package version \"{version}\" specified in the \"{element.ElementName}\" element does not match the package version \"{package.PackageVersion}\".  After conversion, the project will reference ONLY version \"{package.PackageVersion}\"");
                     }
                 }
             }
@@ -528,7 +530,7 @@ namespace PackagesConfigConverter
 
                 if (willRemove)
                 {
-                    Log.Warn($"{projectPath}: The transitive package dependency {package.PackageId} {package.AllowedVersions} will be removed because it is referenced by another package in this dependency graph.");
+                    Log.LogWarning($"{projectPath}: The transitive package dependency {package.PackageId} {package.AllowedVersions} will be removed because it is referenced by another package in this dependency graph.");
                 }
 
                 return willRemove;

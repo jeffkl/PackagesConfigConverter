@@ -2,7 +2,7 @@
 //
 // Licensed under the MIT license.
 
-using log4net;
+using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 
 namespace PackagesConfigConverter
@@ -13,7 +13,7 @@ namespace PackagesConfigConverter
 
         public Regex Include { get; set; }
 
-        public ILog Log { get; set; }
+        public ILogger Log { get; set; }
 
         public string NuGetConfigPath { get; set; } = "(Default)";
 
