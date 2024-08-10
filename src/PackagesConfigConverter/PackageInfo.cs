@@ -9,29 +9,24 @@ using NuGet.Packaging.Core;
 
 namespace PackagesConfigConverter
 {
-    internal sealed class PackageInfo
+    internal sealed class PackageInfo : IEquatable<PackageInfo>
     {
         public PackageInfo(PackageIdentity identity, PackagePathResolver packagePathResolver, VersionFolderPathResolver versionFolderPathResolver)
         {
             Identity = identity;
-
-            InstalledPackageFilePath = PackagePathHelper.GetInstalledPackageFilePath(Identity, packagePathResolver ?? throw new ArgumentNullException(nameof(packagePathResolver)));
-
-            RepositoryInstalledPath = Path.GetDirectoryName(InstalledPackageFilePath);
-
+            RepositoryInstalledPath = packagePathResolver.GetInstallPath(Identity);
             GlobalInstalledPath = Path.GetFullPath(versionFolderPathResolver.GetInstallPath(identity.Id, identity.Version));
-
-            HasAnalyzers = Directory.Exists(Path.Combine(RepositoryInstalledPath, "analyzers"));
+            HasAnalyzers = Directory.Exists(Path.Combine(GlobalInstalledPath, "analyzers"));
         }
 
         public string GlobalInstalledPath { get; }
-
-        public string InstalledPackageFilePath { get; }
 
         public PackageIdentity Identity { get; }
 
         public string RepositoryInstalledPath { get; }
 
         public bool HasAnalyzers { get; }
+
+        public bool Equals(PackageInfo other) => Identity.Equals(other.Identity);
     }
 }

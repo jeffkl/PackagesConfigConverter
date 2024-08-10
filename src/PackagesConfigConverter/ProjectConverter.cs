@@ -142,66 +142,46 @@ namespace PackagesConfigConverter
             return Settings.LoadDefaultSettings(converterSettings.RepositoryRoot, Settings.DefaultSettingsFileName, new XPlatMachineWideSetting());
         }
 
-        private ProjectItemElement AddPackageReference(ProjectItemGroupElement itemGroupElement, PackageUsage package, LockFileTargetLibrary lockFileTargetLibrary)
+        private ProjectItemElement AddPackageReference(ProjectItemGroupElement itemGroupElement, PackageUsage package, LockFileTargetLibrary lockFileTargetLibrary, bool isDevelopmentDependency)
         {
-            LibraryIncludeFlags includeAssets = LibraryIncludeFlags.All;
-            LibraryIncludeFlags excludeAssets = LibraryIncludeFlags.None;
-            LibraryIncludeFlags privateAssets = LibraryIncludeFlags.None;
-
             LibraryIncludeFlags existingAssets = LibraryIncludeFlags.None;
-
-            if (lockFileTargetLibrary == null)
-            {
-                Log.LogWarning($"Package: {package.PackageId}");
-            }
 
             if (HasAnyRealFiles(lockFileTargetLibrary.Build))
             {
                 existingAssets |= LibraryIncludeFlags.Build;
-                if (package.Imports.Count == 0)
-                {
-                    excludeAssets |= LibraryIncludeFlags.Build;
-                }
             }
 
             if (HasAnyRealFiles(lockFileTargetLibrary.CompileTimeAssemblies))
             {
                 existingAssets |= LibraryIncludeFlags.Compile;
-                if (package.AssemblyReferences.Count == 0)
-                {
-                    excludeAssets |= LibraryIncludeFlags.Compile;
-                }
             }
 
             if (HasAnyRealFiles(lockFileTargetLibrary.RuntimeAssemblies))
             {
                 existingAssets |= LibraryIncludeFlags.Runtime;
-                if (package.AssemblyReferences.Count == 0)
-                {
-                    excludeAssets |= LibraryIncludeFlags.Runtime;
-                }
             }
 
             // LockFileTargetLibrary doesn't include analyzer information, so we have to figure it out ourselves.
             if (package.PackageInfo.HasAnalyzers)
             {
                 existingAssets |= LibraryIncludeFlags.Analyzers;
-                if (package.AnalyzerItems.Count == 0)
-                {
-                    excludeAssets |= LibraryIncludeFlags.Analyzers;
-                }
             }
 
-            if (package.IsDevelopmentDependency)
-            {
-                privateAssets |= LibraryIncludeFlags.All;
-            }
+            LibraryIncludeFlags includeAssets;
+            LibraryIncludeFlags excludeAssets;
+            LibraryIncludeFlags privateAssets;
 
             if (package.IsMissingTransitiveDependency)
             {
                 includeAssets = LibraryIncludeFlags.None;
                 excludeAssets = LibraryIncludeFlags.None;
                 privateAssets = LibraryIncludeFlags.All;
+            }
+            else
+            {
+                includeAssets = LibraryIncludeFlags.All;
+                excludeAssets = existingAssets & ~package.UsedAssets;
+                privateAssets = isDevelopmentDependency ? LibraryIncludeFlags.All : LibraryIncludeFlags.None;
             }
 
             // Simplify if the inclusions or exclusions exactly equal what's in the package.
@@ -220,31 +200,7 @@ namespace PackagesConfigConverter
                 privateAssets = LibraryIncludeFlags.All;
             }
 
-            ProjectItemElement itemElement = itemGroupElement.AppendItem("PackageReference", package.PackageInfo.Identity.Id);
-
-            itemElement.AddMetadataAsAttribute("Version", package.PackageInfo.Identity.Version.ToNormalizedString());
-
-            if (includeAssets != LibraryIncludeFlags.All)
-            {
-                itemElement.AddMetadataAsAttribute("IncludeAssets", includeAssets.ToString());
-            }
-
-            if (excludeAssets != LibraryIncludeFlags.None)
-            {
-                itemElement.AddMetadataAsAttribute("ExcludeAssets", excludeAssets.ToString());
-            }
-
-            if (privateAssets != LibraryIncludeFlags.None)
-            {
-                itemElement.AddMetadataAsAttribute("PrivateAssets", privateAssets.ToString());
-            }
-
-            if (package.GeneratePathProperty)
-            {
-                itemElement.AddMetadataAsAttribute("GeneratePathProperty", bool.TrueString);
-            }
-
-            return itemElement;
+            return AddPackageReference(itemGroupElement, package.PackageInfo.Identity, includeAssets, excludeAssets, privateAssets, package.GeneratePathProperty);
 
             static bool HasAnyRealFiles(IList<LockFileItem> items)
             {
@@ -264,6 +220,41 @@ namespace PackagesConfigConverter
             }
         }
 
+        private ProjectItemElement AddPackageReference(
+            ProjectItemGroupElement itemGroupElement,
+            PackageIdentity packageIdentity,
+            LibraryIncludeFlags includeAssets,
+            LibraryIncludeFlags excludeAssets,
+            LibraryIncludeFlags privateAssets,
+            bool generatePathProperty)
+        {
+            ProjectItemElement itemElement = itemGroupElement.AppendItem("PackageReference", packageIdentity.Id);
+
+            itemElement.AddMetadataAsAttribute("Version", packageIdentity.Version.ToNormalizedString());
+
+            if (includeAssets != LibraryIncludeFlags.All)
+            {
+                itemElement.AddMetadataAsAttribute("IncludeAssets", includeAssets.ToString());
+            }
+
+            if (excludeAssets != LibraryIncludeFlags.None)
+            {
+                itemElement.AddMetadataAsAttribute("ExcludeAssets", excludeAssets.ToString());
+            }
+
+            if (privateAssets != LibraryIncludeFlags.None)
+            {
+                itemElement.AddMetadataAsAttribute("PrivateAssets", privateAssets.ToString());
+            }
+
+            if (generatePathProperty)
+            {
+                itemElement.AddMetadataAsAttribute("GeneratePathProperty", bool.TrueString);
+            }
+
+            return itemElement;
+        }
+
         private bool ConvertProject(string projectPath, string packagesConfigPath)
         {
             try
@@ -272,29 +263,48 @@ namespace PackagesConfigConverter
 
                 PackagesConfigReader packagesConfigReader = new PackagesConfigReader(XDocument.Load(packagesConfigPath));
 
-                List<PackageUsage> packages = packagesConfigReader
+                HashSet<PackageIdentity> developmentDependencies = new();
+                List<PackageInfo> packages = packagesConfigReader
                     .GetPackages(allowDuplicatePackageIds: true)
                     .Select(i =>
                     {
-                        PackageInfo packageInfo = _packageInfoFactory.GetPackageInfo(i.PackageIdentity);
-                        return new PackageUsage(packageInfo, i.IsDevelopmentDependency);
+                        if (i.IsDevelopmentDependency)
+                        {
+                            developmentDependencies.Add(i.PackageIdentity);
+                        }
+
+                        return _packageInfoFactory.GetPackageInfo(i.PackageIdentity);
                     })
                     .ToList();
+
+                Log.LogDebug("    Current package references:");
+
+                foreach (PackageInfo package in packages)
+                {
+                    Log.LogDebug($"      {package.Identity}");
+                }
 
                 ProjectRootElement project = ProjectRootElement.Open(projectPath, _projectCollection, preserveFormatting: true);
 
                 NuGetFramework targetFramework = GetNuGetFramework(project);
+
                 RestoreResult restoreResult = Restore(packages, projectPath, targetFramework);
                 RestoreTargetGraph restoreTargetGraph = restoreResult.RestoreGraphs.FirstOrDefault();
                 LockFile lockFile = restoreResult.LockFile;
 
-                DetectMissingTransitiveDependencies(packages, projectPath, restoreTargetGraph);
+                Dictionary<PackageInfo, PackageUsage> packageUsages = new(packages.Count);
+                foreach (PackageInfo package in packages)
+                {
+                    packageUsages.Add(package, new PackageUsage(package));
+                }
+
+                DetectMissingTransitiveDependencies(packageUsages, projectPath, restoreTargetGraph);
 
                 ProjectItemGroupElement packageReferenceItemGroupElement = null;
 
                 foreach (ProjectElement element in project.AllChildren)
                 {
-                    ProcessElement(element, packages);
+                    ProcessElement(element, packageUsages);
 
                     if (packageReferenceItemGroupElement == null && element is ProjectItemElement { ItemType: "Reference" })
                     {
@@ -305,32 +315,23 @@ namespace PackagesConfigConverter
 
                 packageReferenceItemGroupElement ??= project.AddItemGroup();
 
-                Log.LogDebug("    Current package references:");
-
-                foreach (PackageUsage package in packages.Where(i => !i.IsMissingTransitiveDependency))
-                {
-                    Log.LogDebug($"      {package.PackageInfo.Identity}");
-                }
-
-                foreach (ProjectElement element in packages.Where(i => !i.IsMissingTransitiveDependency).SelectMany(i => i.AllElements))
-                {
-                    Log.LogDebug($"    {element.Location}: Removing element {element.ToXmlString()}");
-                    element.Remove();
-                }
-
                 if (_converterSettings.TrimPackages)
                 {
-                    TrimPackages(packages, projectPath, restoreTargetGraph.Flattened);
+                    TrimPackages(packageUsages, projectPath, restoreTargetGraph);
                 }
 
                 Log.LogDebug("    Converted package references:");
 
-                foreach (PackageUsage package in packages)
+                LockFileTarget lockFileTarget = lockFile.GetTarget(targetFramework, runtimeIdentifier: null);
+                foreach (KeyValuePair<PackageInfo, PackageUsage> kvp in packageUsages)
                 {
-                    LockFileTargetLibrary lockFileTargetLibrary = lockFile.GetTarget(targetFramework, runtimeIdentifier: null).GetTargetLibrary(package.PackageId);
+                    PackageInfo package = kvp.Key;
+                    PackageUsage packageUsage = kvp.Value;
 
-                    ProjectItemElement packageReferenceItemElement = AddPackageReference(packageReferenceItemGroupElement, package, lockFileTargetLibrary);
+                    LockFileTargetLibrary lockFileTargetLibrary = lockFileTarget.GetTargetLibrary(packageUsage.PackageId);
+                    bool isDevelopmentDependency = developmentDependencies.Contains(package.Identity);
 
+                    ProjectItemElement packageReferenceItemElement = AddPackageReference(packageReferenceItemGroupElement, packageUsage, lockFileTargetLibrary, isDevelopmentDependency);
                     Log.LogDebug($"      {packageReferenceItemElement.ToXmlString()}");
                 }
 
@@ -356,28 +357,27 @@ namespace PackagesConfigConverter
             return true;
         }
 
-        private void DetectMissingTransitiveDependencies(List<PackageUsage> packages, string projectPath, RestoreTargetGraph restoreTargetGraph)
+        private void DetectMissingTransitiveDependencies(Dictionary<PackageInfo, PackageUsage> packages, string projectPath, RestoreTargetGraph restoreTargetGraph)
         {
             IEnumerable<GraphItem<RemoteResolveResult>> flatPackageDependencies = restoreTargetGraph.Flattened.Where(i => i.Key.Type == LibraryType.Package);
             foreach (GraphItem<RemoteResolveResult> packageDependency in flatPackageDependencies)
             {
-                (LibraryIdentity library, _) = (packageDependency.Key, packageDependency.Data);
-                PackageUsage package = packages.FirstOrDefault(i => i.PackageId.Equals(library.Name, StringComparison.OrdinalIgnoreCase));
+                LibraryIdentity library = packageDependency.Key;
+                PackageIdentity packageIdentity = new PackageIdentity(library.Name, library.Version);
+                PackageInfo packageInfo = _packageInfoFactory.GetPackageInfo(packageIdentity);
 
-                if (package == null)
+                if (!packages.ContainsKey(packageInfo))
                 {
                     Log.LogWarning($"{projectPath}: The transitive package dependency \"{library.Name} {library.Version}\" was not in the packages.config.  After converting to PackageReference, new dependencies will be pulled in transitively which could lead to restore or build errors");
 
-                    PackageIdentity packageIdentity = new PackageIdentity(library.Name, library.Version);
-                    PackageInfo packageInfo = _packageInfoFactory.GetPackageInfo(packageIdentity);
-                    PackageUsage missingTransitiveDependency = new PackageUsage(packageInfo, isDevelopmentDependency: false);
+                    PackageUsage missingTransitiveDependency = new PackageUsage(packageInfo);
                     missingTransitiveDependency.IsMissingTransitiveDependency = true;
-                    packages.Add(missingTransitiveDependency);
+                    packages.Add(packageInfo, missingTransitiveDependency);
                 }
             }
         }
 
-        private Match GetElementMatch(ElementPath elementPath, PackageUsage package)
+        private Match GetElementMatch(ElementPath elementPath, PackageUsage packageUsage)
         {
             Match match = null;
 
@@ -389,35 +389,38 @@ namespace PackagesConfigConverter
 
                         if (itemElement.ItemType.Equals("Analyzer", StringComparison.OrdinalIgnoreCase))
                         {
-                            match = RegularExpressions.Analyzers[package.PackageInfo.Identity].Match(elementPath.FullPath);
+                            match = RegularExpressions.Analyzers[packageUsage.PackageInfo.Identity].Match(elementPath.FullPath);
 
                             if (match.Success)
                             {
-                                package.AnalyzerItems.Add(itemElement);
+                                packageUsage.UsedAssets |= LibraryIncludeFlags.Analyzers;
+                                RemoveElement(elementPath.Element);
                             }
                         }
                         else if (itemElement.ItemType.Equals("Reference", StringComparison.OrdinalIgnoreCase))
                         {
                             if (File.Exists(elementPath.FullPath))
                             {
-                                match = RegularExpressions.AssemblyReferences[package.PackageInfo.Identity].Match(elementPath.FullPath);
+                                match = RegularExpressions.AssemblyReferences[packageUsage.PackageInfo.Identity].Match(elementPath.FullPath);
 
                                 if (match.Success)
                                 {
-                                    package.AssemblyReferences.Add(itemElement);
+                                    packageUsage.UsedAssets |= LibraryIncludeFlags.Compile | LibraryIncludeFlags.Runtime;
+                                    RemoveElement(elementPath.Element);
                                 }
                             }
                         }
 
                         break;
 
-                    case ProjectImportElement importElement:
+                    case ProjectImportElement:
 
-                        match = RegularExpressions.Imports[package.PackageInfo.Identity].Match(elementPath.FullPath);
+                        match = RegularExpressions.Imports[packageUsage.PackageInfo.Identity].Match(elementPath.FullPath);
 
                         if (match.Success)
                         {
-                            package.Imports.Add(importElement);
+                            packageUsage.UsedAssets |= LibraryIncludeFlags.Build;
+                            RemoveElement(elementPath.Element);
                         }
 
                         break;
@@ -425,6 +428,12 @@ namespace PackagesConfigConverter
             }
 
             return match;
+
+            void RemoveElement(ProjectElement element)
+            {
+                Log.LogDebug($"    {element.Location}: Removing element {element.ToXmlString()}");
+                element.Remove();
+            }
         }
 
         private NuGetFramework GetNuGetFramework(ProjectRootElement project)
@@ -445,7 +454,7 @@ namespace PackagesConfigConverter
             return _converterSettings.DefaultTargetFramework;
         }
 
-        private RestoreResult Restore(List<PackageUsage> packages, string projectPath, NuGetFramework framework)
+        private RestoreResult Restore(List<PackageInfo> packages, string projectPath, NuGetFramework framework)
         {
             List<TargetFrameworkInformation> targetFrameworks = new List<TargetFrameworkInformation>
             {
@@ -457,7 +466,7 @@ namespace PackagesConfigConverter
             {
                 Dependencies = packages.Select(i => new LibraryDependency
                 {
-                    LibraryRange = new LibraryRange(i.PackageId, new VersionRange(i.PackageVersion), LibraryDependencyTarget.Package),
+                    LibraryRange = new LibraryRange(i.Identity.Id, new VersionRange(i.Identity.Version), LibraryDependencyTarget.Package),
                 }).ToList(),
                 RestoreMetadata = new ProjectRestoreMetadata
                 {
@@ -497,7 +506,7 @@ namespace PackagesConfigConverter
             return path != null && path.StartsWith(_repositoryPath, StringComparison.OrdinalIgnoreCase);
         }
 
-        private void ProcessElement(ProjectElement element, List<PackageUsage> packages)
+        private void ProcessElement(ProjectElement element, Dictionary<PackageInfo, PackageUsage> packageUsages)
         {
             switch (element)
             {
@@ -536,76 +545,107 @@ namespace PackagesConfigConverter
 
             bool elementPathIsValid = false;
 
-            foreach (PackageUsage package in packages.Where(i => !i.IsMissingTransitiveDependency))
+            foreach (KeyValuePair<PackageInfo, PackageUsage> kvp in packageUsages)
             {
-                Match match = GetElementMatch(elementPath, package);
+                PackageInfo package = kvp.Key;
+                PackageUsage packageUsage = kvp.Value;
+                if (packageUsage.IsMissingTransitiveDependency)
+                {
+                    continue;
+                }
+
+                Match match = GetElementMatch(elementPath, packageUsage);
 
                 if (match != null && match.Success && match.Groups["version"] != null && match.Groups["version"].Success && NuGetVersion.TryParse(match.Groups["version"].Value, out NuGetVersion version))
                 {
                     elementPathIsValid = true;
 
-                    if (!version.Equals(package.PackageInfo.Identity.Version))
+                    if (!version.Equals(package.Identity.Version))
                     {
-                        Log.LogWarning($"  {element.Location}: The package version \"{version}\" specified in the \"{element.ElementName}\" element does not match the package version \"{package.PackageVersion}\".  After conversion, the project will reference ONLY version \"{package.PackageVersion}\"");
+                        Log.LogWarning($"  {element.Location}: The package version \"{version}\" specified in the \"{element.ElementName}\" element does not match the package version \"{package.Identity.Version}\".  After conversion, the project will reference ONLY version \"{packageUsage.PackageVersion}\"");
                     }
                 }
             }
 
             if (!elementPathIsValid && IsPathRootedInRepositoryPath(elementPath.FullPath))
             {
-                PackageUsage package = packages.FirstOrDefault(i => !string.IsNullOrEmpty(i.PackageInfo.RepositoryInstalledPath) && elementPath.FullPath.StartsWith(i.PackageInfo.RepositoryInstalledPath));
-
-                if (package == null)
+                bool foundPackage = false;
+                foreach (KeyValuePair<PackageInfo, PackageUsage> kvp in packageUsages)
                 {
-                    // TODO: Using a package that isn't referenced
-                }
-                else
-                {
-                    string path = Path.Combine(package.PackageInfo.GlobalInstalledPath, elementPath.FullPath.Substring(package.PackageInfo.RepositoryInstalledPath.Length + 1));
+                    PackageInfo package = kvp.Key;
+                    PackageUsage packageUsage = kvp.Value;
 
-                    if (!File.Exists(path) && !Directory.Exists(path))
+                    if (!string.IsNullOrEmpty(kvp.Key.RepositoryInstalledPath) && elementPath.FullPath.StartsWith(kvp.Key.RepositoryInstalledPath))
                     {
-                        // TODO: Using a path that doesn't exist?
-                    }
-                    else
-                    {
-                        string rootedPath = path.Substring(_globalPackagesFolder.Length);
-                        string[] splitPath =
-                            rootedPath.Split(
-                                new[]
-                                {
+                        foundPackage = true;
+                        string path = Path.Combine(package.GlobalInstalledPath, elementPath.FullPath.Substring(package.RepositoryInstalledPath.Length + 1));
+
+                        if (!File.Exists(path) && !Directory.Exists(path))
+                        {
+                            Log.LogWarning($"Using path from package which doesn't exist in the package. This needs manual intervention. Path: {elementPath.FullPath}");
+                        }
+                        else
+                        {
+                            string rootedPath = path.Substring(_globalPackagesFolder.Length);
+                            string[] splitPath =
+                                rootedPath.Split(
+                                    new[]
+                                    {
                                     Path.DirectorySeparatorChar,
                                     Path.AltDirectorySeparatorChar,
-                                },
-                                StringSplitOptions.RemoveEmptyEntries);
-                        string relativePath = string.Join(Path.DirectorySeparatorChar.ToString(), splitPath.Skip(2));
-                        string generatedProperty = $"$(Pkg{package.PackageId.Replace(".", "_")})";
-                        path = $"{generatedProperty}\\{relativePath}";
+                                    },
+                                    StringSplitOptions.RemoveEmptyEntries);
+                            string relativePath = string.Join(Path.DirectorySeparatorChar.ToString(), splitPath.Skip(2));
+                            string generatedProperty = $"$(Pkg{package.Identity.Id.Replace(".", "_")})";
+                            path = $"{generatedProperty}\\{relativePath}";
 
-                        package.GeneratePathProperty = true;
-                        elementPath.Set(path);
+                            packageUsage.GeneratePathProperty = true;
+                            elementPath.Set(path);
+                        }
+
+                        break;
                     }
+                }
+
+                if (!foundPackage)
+                {
+                    Log.LogWarning($"Package is being used which is not referenced. This needs manual intervention. Usage: {elementPath.FullPath}");
                 }
             }
         }
 
-        private void TrimPackages(List<PackageUsage> packages, string projectPath, ICollection<GraphItem<RemoteResolveResult>> flatPackageDependencies)
+        private void TrimPackages(Dictionary<PackageInfo, PackageUsage> packageUsages, string projectPath, RestoreTargetGraph restoreTargetGraph)
         {
-            IEnumerable<LibraryDependency> GetPackageDependencies(PackageUsage package) => flatPackageDependencies.First(p => p.Key.Name.Equals(package.PackageId, StringComparison.OrdinalIgnoreCase)).Data.Dependencies;
-
-            bool IsPackageInDependencySet(PackageUsage package, IEnumerable<LibraryDependency> dependencies) => dependencies.Any(d => d.Name.Equals(package.PackageId, StringComparison.OrdinalIgnoreCase));
-
-            packages.RemoveAll(package =>
+            HashSet<string> nonTopLevelPackages = new(StringComparer.OrdinalIgnoreCase);
+            foreach (GraphItem<RemoteResolveResult> item in restoreTargetGraph.Flattened)
             {
-                bool willRemove = packages.Select(GetPackageDependencies).Any(dependencies => IsPackageInDependencySet(package, dependencies));
-
-                if (willRemove)
+                // Skip non-packages, like the project itself which will obviously depend on the top-level packages.
+                if (item.Key.Type != LibraryType.Package)
                 {
-                    Log.LogWarning($"{projectPath}: The transitive package dependency {package.PackageId} {package.PackageVersion} will be removed because it is referenced by another package in this dependency graph.");
+                    continue;
                 }
 
-                return willRemove;
-            });
+                foreach (LibraryDependency dependency in item.Data.Dependencies)
+                {
+                    nonTopLevelPackages.Add(dependency.Name);
+                }
+            }
+
+            HashSet<PackageInfo> packagesToTrim = new();
+            foreach (KeyValuePair<PackageInfo, PackageUsage> kvp in packageUsages)
+            {
+                PackageInfo package = kvp.Key;
+                if (nonTopLevelPackages.Contains(package.Identity.Id))
+                {
+                    Log.LogWarning($"{projectPath}: The transitive package dependency {package.Identity} will be removed because it is referenced by another package in this dependency graph.");
+                    packagesToTrim.Add(package);
+                }
+            }
+
+            foreach (PackageInfo package in packagesToTrim)
+            {
+                packageUsages.Remove(package);
+            }
         }
     }
 }
