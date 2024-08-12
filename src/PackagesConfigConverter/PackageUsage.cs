@@ -20,6 +20,8 @@ namespace PackagesConfigConverter
 
         public bool GeneratePathProperty { get; set; }
 
+        public bool IsDependency { get; set; }
+
         public bool IsMissingTransitiveDependency { get; set; }
 
         public string PackageId => PackageInfo.Identity.Id;

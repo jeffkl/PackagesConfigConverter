@@ -200,6 +200,12 @@ namespace PackagesConfigConverter
                 privateAssets = LibraryIncludeFlags.All;
             }
 
+            // The top-level package was declared in packages.config but no assets are consumed. Just ignore the dependency.
+            if (excludeAssets == LibraryIncludeFlags.All && !package.IsDependency)
+            {
+                return null;
+            }
+
             return AddPackageReference(itemGroupElement, package.PackageInfo.Identity, includeAssets, excludeAssets, privateAssets, package.GeneratePathProperty);
 
             static bool HasAnyRealFiles(IList<LockFileItem> items)
@@ -299,6 +305,7 @@ namespace PackagesConfigConverter
                 }
 
                 DetectMissingTransitiveDependencies(packageUsages, projectPath, restoreTargetGraph);
+                DetectDependencies(packageUsages, restoreTargetGraph);
 
                 ProjectItemGroupElement packageReferenceItemGroupElement = null;
 
@@ -317,7 +324,7 @@ namespace PackagesConfigConverter
 
                 if (_converterSettings.TrimPackages)
                 {
-                    TrimPackages(packageUsages, projectPath, restoreTargetGraph);
+                    TrimPackages(packageUsages, projectPath);
                 }
 
                 Log.LogDebug("    Converted package references:");
@@ -332,7 +339,14 @@ namespace PackagesConfigConverter
                     bool isDevelopmentDependency = developmentDependencies.Contains(package.Identity);
 
                     ProjectItemElement packageReferenceItemElement = AddPackageReference(packageReferenceItemGroupElement, packageUsage, lockFileTargetLibrary, isDevelopmentDependency);
-                    Log.LogDebug($"      {packageReferenceItemElement.ToXmlString()}");
+                    if (packageReferenceItemElement == null)
+                    {
+                        Log.LogDebug($"      Dropping unused package {package.Identity.Id}");
+                    }
+                    else
+                    {
+                        Log.LogDebug($"      {packageReferenceItemElement.ToXmlString()}");
+                    }
                 }
 
                 if (project.HasUnsavedChanges)
@@ -373,6 +387,35 @@ namespace PackagesConfigConverter
                     PackageUsage missingTransitiveDependency = new PackageUsage(packageInfo);
                     missingTransitiveDependency.IsMissingTransitiveDependency = true;
                     packages.Add(packageInfo, missingTransitiveDependency);
+                }
+            }
+        }
+
+        private void DetectDependencies(Dictionary<PackageInfo, PackageUsage> packageUsages, RestoreTargetGraph restoreTargetGraph)
+        {
+            HashSet<string> nonTopLevelPackages = new(StringComparer.OrdinalIgnoreCase);
+            foreach (GraphItem<RemoteResolveResult> item in restoreTargetGraph.Flattened)
+            {
+                // Skip non-packages, like the project itself which will obviously depend on the top-level packages.
+                if (item.Key.Type != LibraryType.Package)
+                {
+                    continue;
+                }
+
+                foreach (LibraryDependency dependency in item.Data.Dependencies)
+                {
+                    nonTopLevelPackages.Add(dependency.Name);
+                }
+            }
+
+            foreach (KeyValuePair<PackageInfo, PackageUsage> kvp in packageUsages)
+            {
+                PackageInfo package = kvp.Key;
+                PackageUsage packageUsage = kvp.Value;
+
+                if (nonTopLevelPackages.Contains(package.Identity.Id))
+                {
+                    packageUsage.IsDependency = true;
                 }
             }
         }
@@ -614,36 +657,23 @@ namespace PackagesConfigConverter
             }
         }
 
-        private void TrimPackages(Dictionary<PackageInfo, PackageUsage> packageUsages, string projectPath, RestoreTargetGraph restoreTargetGraph)
+        private void TrimPackages(Dictionary<PackageInfo, PackageUsage> packageUsages, string projectPath)
         {
-            HashSet<string> nonTopLevelPackages = new(StringComparer.OrdinalIgnoreCase);
-            foreach (GraphItem<RemoteResolveResult> item in restoreTargetGraph.Flattened)
-            {
-                // Skip non-packages, like the project itself which will obviously depend on the top-level packages.
-                if (item.Key.Type != LibraryType.Package)
-                {
-                    continue;
-                }
-
-                foreach (LibraryDependency dependency in item.Data.Dependencies)
-                {
-                    nonTopLevelPackages.Add(dependency.Name);
-                }
-            }
-
             HashSet<PackageInfo> packagesToTrim = new();
             foreach (KeyValuePair<PackageInfo, PackageUsage> kvp in packageUsages)
             {
                 PackageInfo package = kvp.Key;
-                if (nonTopLevelPackages.Contains(package.Identity.Id))
+                PackageUsage packageUsage = kvp.Value;
+
+                if (packageUsage.IsDependency)
                 {
-                    Log.LogWarning($"{projectPath}: The transitive package dependency {package.Identity} will be removed because it is referenced by another package in this dependency graph.");
                     packagesToTrim.Add(package);
                 }
             }
 
             foreach (PackageInfo package in packagesToTrim)
             {
+                Log.LogWarning($"{projectPath}: The transitive package dependency {package.Identity} will be removed because it is referenced by another package in this dependency graph.");
                 packageUsages.Remove(package);
             }
         }
