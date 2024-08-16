@@ -11,6 +11,7 @@ using System.Threading;
 using System.Xml.Linq;
 using Microsoft.Build.Construction;
 using Microsoft.Build.Evaluation;
+using Microsoft.Build.Graph;
 using Microsoft.Extensions.Logging;
 using NuGet.Commands;
 using NuGet.Common;
@@ -87,9 +88,13 @@ namespace PackagesConfigConverter
 
             Log.LogInformation($"  NuGet configuration file : \"{_converterSettings.NuGetConfigPath}\"");
 
-            foreach (string file in Directory.EnumerateFiles(_converterSettings.RepositoryRoot, "*.csproj", SearchOption.AllDirectories)
-                .TakeWhile(_ => !cancellationToken.IsCancellationRequested))
+            foreach (string file in GetProjectFiles())
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
                 if (_converterSettings.Exclude != null && _converterSettings.Exclude.IsMatch(file))
                 {
                     Log.LogDebug($"  Excluding file \"{file}\"");
@@ -140,6 +145,63 @@ namespace PackagesConfigConverter
             }
 
             return Settings.LoadDefaultSettings(converterSettings.RepositoryRoot, Settings.DefaultSettingsFileName, new XPlatMachineWideSetting());
+        }
+
+        private IEnumerable<string> GetProjectFiles()
+        {
+            if (_converterSettings.Graph)
+            {
+                string entryProjectFile;
+
+                string[] rootSolutionFiles = Directory.GetFiles(_converterSettings.RepositoryRoot, "*.sln", SearchOption.TopDirectoryOnly);
+                if (rootSolutionFiles.Length > 1)
+                {
+                    Log.LogError("Found more than one sln file in the repo root. Cannot use graph discovery");
+                    return Array.Empty<string>();
+                }
+
+                if (rootSolutionFiles.Length == 1)
+                {
+                    entryProjectFile = rootSolutionFiles[0];
+                }
+                else
+                {
+                    string[] rootProjectFiles = Directory.GetFiles(_converterSettings.RepositoryRoot, "*.*proj", SearchOption.TopDirectoryOnly);
+                    if (rootProjectFiles.Length > 1)
+                    {
+                        Log.LogError("Found more than one project file in the repo root. Cannot use graph discovery");
+                        return Array.Empty<string>();
+                    }
+
+                    if (rootProjectFiles.Length == 1)
+                    {
+                        entryProjectFile = rootProjectFiles[0];
+                    }
+                    else
+                    {
+                        Log.LogError("Did not find any solutions or projects in the repo root. Cannot use graph discovery");
+                        return Array.Empty<string>();
+                    }
+                }
+
+                // Using a set to avoid duplicates due to inner/outer builds. Sorting for a consistent ordering.
+                SortedSet<string> projectFiles = new(StringComparer.OrdinalIgnoreCase);
+                ProjectGraph graph = new(entryProjectFile);
+                foreach (ProjectGraphNode node in graph.ProjectNodes)
+                {
+                    string projectFile = node.ProjectInstance.FullPath;
+                    if (projectFile.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+                    {
+                        projectFiles.Add(projectFile);
+                    }
+                }
+
+                return projectFiles;
+            }
+            else
+            {
+                return Directory.EnumerateFiles(_converterSettings.RepositoryRoot, "*.csproj", SearchOption.AllDirectories);
+            }
         }
 
         private ProjectItemElement AddPackageReference(ProjectItemGroupElement itemGroupElement, PackageUsage package, LockFileTargetLibrary lockFileTargetLibrary, bool isDevelopmentDependency)
