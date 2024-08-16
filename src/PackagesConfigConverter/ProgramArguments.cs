@@ -17,6 +17,9 @@ namespace PackagesConfigConverter
         [Option('i', HelpText = "Regex for project files to include", MetaValue = "regex")]
         public string Include { get; set; }
 
+        [Option('g', HelpText = "Whether to use the MSBuild graph to discover project files")]
+        public bool Graph { get; set; }
+
         [Option('l', HelpText = "Log file to write to", MetaValue = "log")]
         public string LogFile { get; set; }
 

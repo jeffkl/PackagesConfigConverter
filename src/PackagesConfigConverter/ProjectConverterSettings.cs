@@ -14,6 +14,8 @@ namespace PackagesConfigConverter
 
         public Regex Include { get; set; }
 
+        public bool Graph { get; set; }
+
         public ILogger Log { get; set; }
 
         public string NuGetConfigPath { get; set; } = "(Default)";

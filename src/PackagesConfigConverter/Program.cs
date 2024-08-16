@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using CommandLine;
+using Microsoft.Build.Locator;
 using Microsoft.Extensions.Logging;
 using NuGet.Frameworks;
 using Serilog;
@@ -62,14 +63,23 @@ namespace PackagesConfigConverter
             using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddSerilog());
             ILogger logger = factory.CreateLogger("PackagesConfigConverter");
 
+            MSBuildLocator.RegisterDefaults();
+
             ProjectConverterSettings settings = new ProjectConverterSettings
             {
                 RepositoryRoot = arguments.RepoRoot,
                 Include = arguments.Include.ToRegex(),
                 Exclude = arguments.Exclude.ToRegex(),
+                Graph = arguments.Graph,
                 Log = logger,
                 TrimPackages = arguments.Trim,
             };
+
+            if (settings.Graph && settings.Include != null)
+            {
+                logger.LogError("Cannot specify using graph discovery and specific project inclusion.");
+                return;
+            }
 
             if (arguments.DefaultTargetFramework != null)
             {
@@ -79,6 +89,7 @@ namespace PackagesConfigConverter
             logger.LogInformation($" RepositoryRoot: '{settings.RepositoryRoot}'");
             logger.LogInformation($"  Include regex: '{settings.Include}'");
             logger.LogInformation($"  Exclude regex: '{settings.Exclude}'");
+            logger.LogInformation($"  Graph discovery: '{settings.Graph}'");
             logger.LogInformation(string.Empty);
 
             if (!arguments.Yes)
